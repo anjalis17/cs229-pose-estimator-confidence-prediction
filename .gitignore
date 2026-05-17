@@ -1,0 +1,25 @@
+cat > .gitignore << EOF
+# Dataset 
+data/
+
+# Model weights
+checkpoints/
+*.pth
+*.pth.tar
+
+# Results and figures 
+results/*.csv
+figures/*.pdf
+figures/*.png
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# uv
+.venv/
+
+# OS
+.DS_Store
+EOF
