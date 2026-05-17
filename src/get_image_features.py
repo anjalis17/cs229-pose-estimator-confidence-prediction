@@ -11,9 +11,8 @@ Saves:
     results/img_stats_feature_names.npy   -- (F,)   feature names
 """
 
-import json
-import random
 import numpy as np
+import pandas as pd
 from pathlib import Path
 from PIL import Image
 from tqdm import tqdm
@@ -27,13 +26,10 @@ DATA_ROOT    = PROJECT_ROOT / 'data/speedplusv2/speedplus'
 RESULTS_DIR  = PROJECT_ROOT / 'results'
 RESULTS_DIR.mkdir(exist_ok=True)
 
-N_SAMPLES = 1000
-SEED      = 42
-
 DOMAINS = {
-    'synthetic': ('validation.json', 'images'),
-    'lightbox':  ('test.json',       'images'),
-    'sunlamp':   ('test.json',       'images'),
+    'synthetic': ('labels/validation_1000.csv', 'images'),
+    'lightbox':  ('labels/test_1000.csv',        'images'),
+    'sunlamp':   ('labels/test_1000.csv',        'images'),
 }
 
 FEATURE_NAMES = [
@@ -88,9 +84,10 @@ def compute_stats(img_path: Path) -> np.ndarray:
 
     fft        = np.fft.fftshift(np.fft.fft2(img))
     power      = np.abs(fft) ** 2
-    low_freq   = power[:h//4, :w//4].mean()
-    high_freq  = power[h//4:3*h//4, w//4:3*w//4].mean()
-    freq_ratio = float(high_freq / (low_freq + 1e-10))
+    # after fftshift, low frequencies are in the center and high frequencies at the corners
+    low_freq   = power[3*h//8 : 5*h//8, 3*w//8 : 5*w//8].mean()
+    high_freq  = power[:h//4, :w//4].mean()
+    freq_ratio = float(high_freq / (low_freq + 1.0))
 
     # ── Edge ─────────────────────────────────────────────────────────────────
     dx         = np.diff(img, axis=1)
@@ -104,27 +101,26 @@ def compute_stats(img_path: Path) -> np.ndarray:
     center_bright  = float(crop.mean())
     center_contrast= float(crop.std())
 
-    return np.array([
+    result = np.array([
         mean_b, std_b, overexposure, underexposure, bright_skew,
         dynamic_range, img_ent, lbp_var, sharpness, freq_ratio,
         edge, center_bright, center_contrast,
     ], dtype=np.float32)
+    # bright_skew is nan for zero-variance images; replace any nan/inf with 0
+    return np.nan_to_num(result, nan=0.0, posinf=0.0, neginf=0.0)
 
 
 # ── Per-Domain Extraction ─────────────────────────────────────────────────────
 
 def extract_domain(domain: str):
-    json_file, img_dir = DOMAINS[domain]
-    labels = json.load(open(DATA_ROOT / domain / json_file))
-
-    random.seed(SEED)
-    sampled = random.sample(labels, min(N_SAMPLES, len(labels)))
-    print(f"\n{domain}: {len(sampled)} images")
+    csv_file, img_dir = DOMAINS[domain]
+    # first column of the CSV is the filename; no header
+    csv_filenames = pd.read_csv(DATA_ROOT / domain / csv_file, header=None)[0].tolist()
+    print(f"\n{domain}: {len(csv_filenames)} images")
 
     features, filenames = [], []
 
-    for entry in tqdm(sampled, desc=domain):
-        filename = entry['filename']
+    for filename in tqdm(csv_filenames, desc=domain):
         img_path = DATA_ROOT / domain / img_dir / filename
         try:
             feat = compute_stats(img_path)
