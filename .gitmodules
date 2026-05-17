@@ -1,0 +1,3 @@
+[submodule "spnv2"]
+	path = spnv2
+	url = https://github.com/tpark94/spnv2
