@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     f1_score, precision_score, recall_score, roc_auc_score
@@ -104,9 +105,9 @@ def random_baseline(y_true: np.ndarray, domain: str):
     }
 
 
-# ── Baseline 2: Supervised Classifier ─────────────────────────────────────────
+# ── Baseline 2: Supervised Classifier (Logistic Regression) ───────────────────
 
-def supervised_baseline(
+def supervised_baseline_logistic_regression(
     X_train: np.ndarray, y_train: np.ndarray,
     X_val:   np.ndarray, y_val:   np.ndarray,
     X_test:  np.ndarray, y_test:  np.ndarray,
@@ -163,7 +164,64 @@ def supervised_baseline(
         },
     ]
 
+# ── Baseline 3: Supervised Classifier (Random Forest) ─────────────────────────
+def supervised_baseline_random_forest(
+    X_train: np.ndarray, y_train: np.ndarray,
+    X_val:   np.ndarray, y_val:   np.ndarray,
+    X_test:  np.ndarray, y_test:  np.ndarray,
+    domain:  str
+):
+    """
+    Train random forest on synthetic train split, evaluate on synthetic val split and on HIL test data.
 
+    """
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_val_s   = scaler.transform(X_val)
+    X_test_s  = scaler.transform(X_test)
+
+    clf = RandomForestClassifier(n_estimators=100, random_state=42)
+    clf.fit(X_train_s, y_train)
+
+    # Training accuracy (how well it fit)
+    train_acc = (clf.predict(X_train_s) == y_train).mean()
+    print(f"\nBaseline 3 (Supervised) — train accuracy on synthetic: {train_acc:.1%}")
+
+    # Synthetic validation (in-distribution)
+    y_val_pred = clf.predict(X_val_s)
+    y_val_prob = clf.predict_proba(X_val_s)[:, 1]
+    print_metrics(y_true=y_val, y_pred=y_val_pred, y_prob=y_val_prob,
+                  name="Supervised [synthetic val]")
+
+    # HIL test (out-of-distribution)
+    y_pred = clf.predict(X_test_s)
+    y_prob = clf.predict_proba(X_test_s)[:, 1]
+    print_metrics(y_true=y_test, y_pred=y_pred, y_prob=y_prob,
+                  name=f"Supervised [{domain}]")
+
+    return [
+        {
+            'domain':    'synthetic val',
+            'method':    'supervised',
+            'accuracy':  (y_val == y_val_pred).mean(),
+            'f1':        f1_score(y_val, y_val_pred, zero_division=0),
+            'precision': precision_score(y_val, y_val_pred, zero_division=0),
+            'recall':    recall_score(y_val, y_val_pred, zero_division=0),
+            'auc':       roc_auc_score(y_val, y_val_prob)
+                         if len(np.unique(y_val)) > 1 else np.nan,
+        },
+        {
+            'domain':    domain,
+            'method':    'supervised',
+            'accuracy':  (y_test == y_pred).mean(),
+            'f1':        f1_score(y_test, y_pred, zero_division=0),
+            'precision': precision_score(y_test, y_pred, zero_division=0),
+            'recall':    recall_score(y_test, y_pred, zero_division=0),
+            'auc':       roc_auc_score(y_test, y_prob)
+                         if len(np.unique(y_test)) > 1 else np.nan,
+        },
+    ]
+    
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -214,7 +272,7 @@ def main():
         all_results.append(r1)
 
         # Baseline 2: Supervised (trained on synthetic, tested on synthetic val + HIL)
-        r2_list = supervised_baseline(
+        r2_list = supervised_baseline_logistic_regression(
             X_train=X_train, y_train=y_train,
             X_val=X_val,     y_val=y_val,
             X_test=X_hil_al, y_test=y_hil,
@@ -224,6 +282,18 @@ def main():
             all_results.append(r2_list[0])
             synth_val_added = True
         all_results.append(r2_list[1])
+
+        # Baseline 3: Supervised (trained on synthetic, tested on synthetic val + HIL)
+        r3_list = supervised_baseline_random_forest(
+            X_train=X_train, y_train=y_train,
+            X_val=X_val,     y_val=y_val,
+            X_test=X_hil_al, y_test=y_hil,
+            domain=domain
+        )
+        if not synth_val_added:
+            all_results.append(r3_list[0])
+            synth_val_added = True
+        all_results.append(r3_list[1])
 
     # Summary table
     print(f"\n{'='*50}")
