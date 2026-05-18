@@ -122,7 +122,7 @@ def supervised_baseline_logistic_regression(
     X_val_s   = scaler.transform(X_val)
     X_test_s  = scaler.transform(X_test)
 
-    clf = LogisticRegression(max_iter=1000, random_state=42)
+    clf = LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced') # balanced class weights to avoid overfitting to the majority class
     clf.fit(X_train_s, y_train)
 
     # Training accuracy (how well it fit)
@@ -221,7 +221,7 @@ def supervised_baseline_random_forest(
                          if len(np.unique(y_test)) > 1 else np.nan,
         },
     ]
-    
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
