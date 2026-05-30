@@ -7,7 +7,7 @@ HIL subset (~25% of each domain). Calibrators are fit separately for lightbox
 and sunlamp because the two conditions exhibit different score-to-error curves.
 
 Two calibrators per (detector, domain) pair:
-  - IsotonicRegression:  s(x) → ê(x)      continuous error prediction
+  - IsotonicRegression:  s(x) → ehat(x)      continuous error prediction
   - LogisticRegression:  s(x) → P(fail)   binary fail/pass, threshold on SPEED score
 
 Saves:
@@ -35,16 +35,23 @@ FAIL_THRESHOLD = 0.05   # SPEED score above this → failure
 CALIB_FRAC     = 0.25   # fraction of HIL images reserved for calibration (~250 per domain)
 
 
+def signed_log(scores: np.ndarray) -> np.ndarray:
+    """
+    Deal with heavy right tail of the anomaly scores via signed log transform.
+    """
+    return np.sign(scores) * np.log1p(np.abs(scores))
+
+
 def load_scores_and_errors(detector: str, domain: str):
     """
     Load anomaly scores and SPEED errors for a HIL domain, aligned by row.
-    Both arrays come from test_1000.csv in the same order; truncate to min length
+    Both arrays come from the test CSV in the same order; truncate to min length
     in case a small number of images failed during SPNv2 inference.
     """
     scores = np.load(RESULTS_DIR / f'anomaly_scores_{detector}_{domain}.npy')
     errors_df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
     n = min(len(scores), len(errors_df))
-    return scores[:n], errors_df['speed_score'].values[:n]
+    return signed_log(scores[:n]), errors_df['speed_score'].values[:n]
 
 
 class DomainCalibrator:
@@ -93,10 +100,10 @@ def evaluate(calibrator: DomainCalibrator,
     }
 
     if len(np.unique(labels)) > 1:
-        metrics['auc']       = roc_auc_score(labels, fail_prob)
-        metrics['f1']        = f1_score(labels, fail_pred, zero_division=0)
+        metrics['auc'] = roc_auc_score(labels, fail_prob)
+        metrics['f1'] = f1_score(labels, fail_pred, zero_division=0)
         metrics['precision'] = precision_score(labels, fail_pred, zero_division=0)
-        metrics['recall']    = recall_score(labels, fail_pred, zero_division=0)
+        metrics['recall'] = recall_score(labels, fail_pred, zero_division=0)
     else:
         metrics.update({'auc': float('nan'), 'f1': float('nan'),
                         'precision': float('nan'), 'recall': float('nan')})

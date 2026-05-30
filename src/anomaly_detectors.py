@@ -24,10 +24,11 @@ DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
 
 def load_features(domain: str) -> np.ndarray:
-    return np.load(RESULTS_DIR / f'img_stats_{domain}.npy')
+    # return np.load(RESULTS_DIR / f'img_stats_{domain}.npy')
+    return np.load(RESULTS_DIR / f'model_features_{domain}.npy')
 
 
-# Mahalanobis Detector
+# ================================================ Mahalanobis Detector ================================================
 
 # Mahalanobis distance is the distance from a point to the mean of the Gaussian, measured in units of standard deviations
 # In a multivariate sense, it also accounts for correlations between features and the individual variances of each feature
@@ -53,7 +54,7 @@ class MahalanobisDetector:
         return np.einsum('ni,ij,nj->n', diff, self.cov_inv_, diff)
 
 
-# ── GMM Detector ─────────────────────────────────────────────────────────────
+# ================================================ GMM Detector ================================================
 
 class GMMDetector:
     """

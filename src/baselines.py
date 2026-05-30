@@ -25,8 +25,8 @@ RESULTS_DIR   = PROJECT_ROOT / 'results'
 FAIL_THRESHOLD = 0.05
 
 # Data Loading 
-def load_features(domain: str, feature_type: str = 'img_stats') -> np.ndarray:
-    """Load feature matrix for a domain. feature_type: 'img_stats' or 'gap'"""
+def load_features(domain: str, feature_type: str = 'model_features') -> np.ndarray:
+    """Load feature matrix for a domain. feature_type: 'model_features' or 'gap'"""
     return np.load(RESULTS_DIR / f'{feature_type}_{domain}.npy')
 
 
@@ -225,7 +225,8 @@ def supervised_baseline_logistic_regression(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
-    feature_type = 'img_stats'  # switch to 'gap' (backbone activations of SPNv2) once we have that ready
+    # feature_type = 'img_stats'  # switch to 'gap' (backbone activations of SPNv2) once we have that ready
+    feature_type = 'model_features'  # switch to 'gap' (backbone activations of SPNv2) once we have that ready
 
     # Load synthetic data and split 800 train / 200 val
     X_synth   = load_features('synthetic', feature_type)
