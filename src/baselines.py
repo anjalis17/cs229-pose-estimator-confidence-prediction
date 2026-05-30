@@ -231,10 +231,9 @@ def main():
     X_synth   = load_features('synthetic', feature_type)
     err_synth = load_errors('synthetic')
     X_synth_al, y_synth = align_features_and_labels(X_synth, err_synth)
-    X_synth_al, y_synth = X_synth_al[:1000], y_synth[:1000]
 
-    X_train, y_train = X_synth_al[:800], y_synth[:800]
-    X_val,   y_val   = X_synth_al[800:], y_synth[800:]
+    X_train, y_train = X_synth_al[:9600], y_synth[:9600]
+    X_val,   y_val   = X_synth_al[9600:], y_synth[9600:]
     report_split(y_train, "Synthetic Train")
     report_split(y_val, "Synthetic Val")
 

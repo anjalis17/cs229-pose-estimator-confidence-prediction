@@ -11,6 +11,7 @@ checkpoints/
 results/*.csv
 figures/*.pdf
 figures/*.png
+results/*.npy
 
 # Python
 __pycache__/
