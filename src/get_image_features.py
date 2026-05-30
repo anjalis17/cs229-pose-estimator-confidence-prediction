@@ -11,6 +11,7 @@ Saves:
     results/img_stats_feature_names.npy   -- (F,)   feature names
 """
 
+import os
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -19,17 +20,18 @@ from tqdm import tqdm
 from scipy.stats import skew, entropy
 from scipy.ndimage import laplace
 from skimage.feature import local_binary_pattern
+from multiprocessing import Pool, cpu_count
 
 # ── Config ────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parent.parent
-DATA_ROOT    = PROJECT_ROOT / 'data/speedplusv2/speedplus'
+DATA_ROOT    = Path(os.environ.get('SPEEDPLUS_DATA', Path.home() / 'Desktop/speedplusv2'))
 RESULTS_DIR  = PROJECT_ROOT / 'results'
 RESULTS_DIR.mkdir(exist_ok=True)
 
 DOMAINS = {
-    'synthetic': ('labels/validation_1000.csv', 'images'),
-    'lightbox':  ('labels/test_1000.csv',        'images'),
-    'sunlamp':   ('labels/test_1000.csv',        'images'),
+    'synthetic': ('labels/validation.csv', 'images'),
+    'lightbox':  ('labels/test.csv',       'images'),
+    'sunlamp':   ('labels/test.csv',       'images'),
 }
 
 FEATURE_NAMES = [
@@ -112,23 +114,28 @@ def compute_stats(img_path: Path) -> np.ndarray:
 
 # ── Per-Domain Extraction ─────────────────────────────────────────────────────
 
+def _compute_one(args):
+    img_path, filename = args
+    try:
+        return filename, compute_stats(img_path)
+    except Exception as e:
+        print(f"Failed {filename}: {e}")
+        return filename, None
+
+
 def extract_domain(domain: str):
     csv_file, img_dir = DOMAINS[domain]
-    # first column of the CSV is the filename; no header
     csv_filenames = pd.read_csv(DATA_ROOT / domain / csv_file, header=None)[0].tolist()
     print(f"\n{domain}: {len(csv_filenames)} images")
 
-    features, filenames = [], []
+    img_paths = [(DATA_ROOT / domain / img_dir / f, f) for f in csv_filenames]
 
-    for filename in tqdm(csv_filenames, desc=domain):
-        img_path = DATA_ROOT / domain / img_dir / filename
-        try:
-            feat = compute_stats(img_path)
-            features.append(feat)
-            filenames.append(filename)
-        except Exception as e:
-            print(f"Failed {filename}: {e}")
-            continue
+    features, filenames = [], []
+    with Pool(cpu_count()) as pool:
+        for filename, feat in tqdm(pool.imap(_compute_one, img_paths), total=len(img_paths), desc=domain):
+            if feat is not None:
+                features.append(feat)
+                filenames.append(filename)
 
     return np.array(features, dtype=np.float32), np.array(filenames)
 
