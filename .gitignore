@@ -6,6 +6,7 @@ data/
 checkpoints/
 *.pth
 *.pth.tar
+spnv2/
 
 # Results and figures 
 results/*.csv
@@ -23,4 +24,3 @@ __pycache__/
 
 # OS
 .DS_Store
-EOF
