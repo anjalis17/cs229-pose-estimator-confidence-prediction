@@ -2,16 +2,6 @@
 """
 Stage 2: Calibration pipeline.
 
-Maps anomaly score s(x) → predicted pose error ê(x) using a small labeled
-HIL subset (~25% of each domain). Calibrators are fit separately for lightbox
-and sunlamp because the two conditions exhibit different score-to-error curves.
-
-Two calibrators per (detector, domain) pair:
-  - IsotonicRegression:  s(x) → ehat(x)      continuous error prediction
-  - LogisticRegression:  s(x) → P(fail)   binary fail/pass, threshold on SPEED score
-
-Saves:
-    results/calibration_results.csv  -- per-domain evaluation metrics
 """
 
 import numpy as np
@@ -19,6 +9,7 @@ import pandas as pd
 from pathlib import Path
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     mean_absolute_error, f1_score, roc_auc_score,
@@ -26,70 +17,103 @@ from sklearn.metrics import (
 )
 from scipy.stats import spearmanr
 
-PROJECT_ROOT   = Path(__file__).parent.parent
-RESULTS_DIR    = PROJECT_ROOT / 'results'
+# ── Config ────────────────────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).parent.parent
+RESULTS_DIR = PROJECT_ROOT / 'results'
 
-HIL_DOMAINS    = ['lightbox', 'sunlamp']
-DETECTORS      = ['mahal', 'gmm']
-FAIL_THRESHOLD = 0.05   # SPEED score above this → failure
-CALIB_FRAC     = 0.25   # fraction of HIL images reserved for calibration (~250 per domain)
+HIL_DOMAINS = ['lightbox', 'sunlamp']
+REPRESENTATIONS = ['mahal', 'gmm', 'scores', 'features', 'features+scores']
+CALIB_FRAC = 0.25   # fraction of HIL images reserved for calibration
 
+# Per-component thresholds for rotation and translation errors [deg, m]
+COMPONENTS = {'E_R': 5.0, 'E_T': 0.10}
 
+# ── Data loading ──────────────────────────────────────────────────────────────
 def signed_log(scores: np.ndarray) -> np.ndarray:
-    """
-    Deal with heavy right tail of the anomaly scores via signed log transform.
-    """
+    """Tame the heavy right tail of the anomaly scores via signed log transform."""
     return np.sign(scores) * np.log1p(np.abs(scores))
 
 
-def load_scores_and_errors(detector: str, domain: str):
+def load_domain(domain: str):
     """
-    Load anomaly scores and SPEED errors for a HIL domain, aligned by row.
-    Both arrays come from the test CSV in the same order; truncate to min length
-    in case a small number of images failed during SPNv2 inference.
+    Load every Stage-1 signal + per-component SPEED errors for one HIL domain,
+    aligned by row.
+    Returns {representation: (N, d) design matrix} and {component: (N,) errors}.
+
+    All arrays come from the same test-CSV order; truncate to the min length in
+    case a few images failed during SPNv2 inference.
     """
-    scores = np.load(RESULTS_DIR / f'anomaly_scores_{detector}_{domain}.npy')
-    errors_df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
-    n = min(len(scores), len(errors_df))
-    return signed_log(scores[:n]), errors_df['speed_score'].values[:n]
+    feats  = np.load(RESULTS_DIR / f'model_features_{domain}.npy')
+    mahal  = signed_log(np.load(RESULTS_DIR / f'anomaly_scores_mahal_{domain}.npy'))
+    gmm    = signed_log(np.load(RESULTS_DIR / f'anomaly_scores_gmm_{domain}.npy'))
+    err_df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
+
+    n = min(len(feats), len(mahal), len(gmm), len(err_df))
+    feats, mahal, gmm, err_df = feats[:n], mahal[:n], gmm[:n], err_df.iloc[:n]
+    scores = np.column_stack([mahal, gmm])
+
+    X = {
+        'mahal': mahal.reshape(-1, 1),
+        'gmm': gmm.reshape(-1, 1),
+        'scores': scores,
+        'features': feats,
+        'features+scores': np.column_stack([feats, scores]),
+    }
+    errors = {comp: err_df[comp].values for comp in COMPONENTS}
+    return X, errors
 
 
+# ── Calibrator ────────────────────────────────────────────────────────────────
 class DomainCalibrator:
     """
-    Isotonic + logistic calibrators for one (detector, domain) pair.
-    Fit on a small labeled calibration split; applied to the held-out test split.
+    Standardize -> logistic (X -> P(fail)) + isotonic (P(fail) -> ehat) for one
+    (component, representation, domain). Inputs can be any dimensionality, so the
+    same calibrator works for a single anomaly score or the full feature vector.
+    The isotonic output (ehat) is the per-measurement std-dev for the UKF;
+    predict_fail_prob is the gating signal.
     """
 
-    def __init__(self, fail_threshold: float = FAIL_THRESHOLD):
+    def __init__(self, fail_threshold: float):
         self.fail_threshold = fail_threshold
-        self.iso_ = IsotonicRegression(increasing=True, out_of_bounds='clip')
+        self.scaler_ = StandardScaler()
         self.lr_  = LogisticRegression(class_weight='balanced', max_iter=1000,
                                        random_state=42)
+        self.iso_ = IsotonicRegression(increasing=True, out_of_bounds='clip')
 
-    def fit(self, scores: np.ndarray, errors: np.ndarray) -> 'DomainCalibrator':
+    def fit(self, X: np.ndarray, errors: np.ndarray) -> 'DomainCalibrator':
         labels = (errors > self.fail_threshold).astype(int)
-        self.iso_.fit(scores, errors)
-        self.lr_.fit(scores.reshape(-1, 1), labels)
+        Xs = self.scaler_.fit_transform(X)
+        self.lr_.fit(Xs, labels)
+        probs = self.lr_.predict_proba(Xs)[:, 1]
+
+        # isotonic maps the classifier's probability (a scalar) to continuous error,
+        # so continuous prediction works regardless of input dimensionality.
+        self.iso_.fit(probs, errors)
+
+        # pick the probability threshold that maximizes F1 on the calibration split;
+        # 0.5 is the wrong cut when the base failure rate isn't 50%
+        grid = np.linspace(0.05, 0.95, 19)
+        f1s = [f1_score(labels, (probs >= t).astype(int), zero_division=0) for t in grid]
+        self.threshold_ = grid[int(np.argmax(f1s))]
         return self
 
-    def predict_error(self, scores: np.ndarray) -> np.ndarray:
-        return self.iso_.predict(scores)
+    def predict_fail_prob(self, X: np.ndarray) -> np.ndarray:
+        return self.lr_.predict_proba(self.scaler_.transform(X))[:, 1]
 
-    def predict_fail_prob(self, scores: np.ndarray) -> np.ndarray:
-        return self.lr_.predict_proba(scores.reshape(-1, 1))[:, 1]
+    def predict_fail(self, X: np.ndarray) -> np.ndarray:
+        return (self.predict_fail_prob(X) >= self.threshold_).astype(int)
 
-    def predict_fail(self, scores: np.ndarray) -> np.ndarray:
-        return self.lr_.predict(scores.reshape(-1, 1))
+    def predict_error(self, X: np.ndarray) -> np.ndarray:
+        return self.iso_.predict(self.predict_fail_prob(X))
 
 
-def evaluate(calibrator: DomainCalibrator,
-             scores: np.ndarray,
-             errors: np.ndarray) -> dict:
-    labels    = (errors > calibrator.fail_threshold).astype(int)
-    e_hat     = calibrator.predict_error(scores)
-    fail_prob = calibrator.predict_fail_prob(scores)
-    fail_pred = calibrator.predict_fail(scores)
-    rho, _    = spearmanr(scores, errors)
+# ── Evaluation ────────────────────────────────────────────────────────────────
+def evaluate(cal: DomainCalibrator, X: np.ndarray, errors: np.ndarray) -> dict:
+    labels    = (errors > cal.fail_threshold).astype(int)
+    e_hat     = cal.predict_error(X)
+    fail_prob = cal.predict_fail_prob(X)
+    fail_pred = cal.predict_fail(X)
+    rho, _    = spearmanr(fail_prob, errors)
 
     metrics = {
         'mae':       mean_absolute_error(errors, e_hat),
@@ -98,7 +122,6 @@ def evaluate(calibrator: DomainCalibrator,
         'n_total':   len(labels),
         'fail_rate': labels.mean(),
     }
-
     if len(np.unique(labels)) > 1:
         metrics['auc'] = roc_auc_score(labels, fail_prob)
         metrics['f1'] = f1_score(labels, fail_pred, zero_division=0)
@@ -110,46 +133,46 @@ def evaluate(calibrator: DomainCalibrator,
     return metrics
 
 
+# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     rows = []
 
-    for det in DETECTORS:
-        for domain in HIL_DOMAINS:
-            scores, errors = load_scores_and_errors(det, domain)
-            labels = (errors > FAIL_THRESHOLD).astype(int)
+    for domain in HIL_DOMAINS:
+        X, errors = load_domain(domain)
 
-            s_calib, s_test, e_calib, e_test = train_test_split(
-                scores, errors,
-                test_size=1 - CALIB_FRAC,
-                random_state=42,
-                stratify=labels,
+        for comp, threshold in COMPONENTS.items():
+            err = errors[comp]
+            labels = (err > threshold).astype(int)
+            print(f"\n{'='*64}\n{domain} / {comp}: {len(err)} images, "
+                  f"fail rate {labels.mean():.1%} (>{threshold} {('deg' if comp=='E_R' else 'm')})\n{'='*64}")
+
+            # one split per (domain, component), shared across representations
+            idx = np.arange(len(err))
+            tr_idx, te_idx = train_test_split(
+                idx, test_size=1 - CALIB_FRAC, random_state=42, stratify=labels,
             )
 
-            print(f"\n── {det} / {domain} ──")
-            print(f"  Calibration set: {len(s_calib)} images")
-            print(f"  Test set:        {len(s_test)} images")
-            print(f"  Fail rate (calib): {(e_calib > FAIL_THRESHOLD).mean():.1%}")
+            for rep in REPRESENTATIONS:
+                Xr = X[rep]
+                cal = DomainCalibrator(fail_threshold=threshold).fit(Xr[tr_idx], err[tr_idx])
+                m = evaluate(cal, Xr[te_idx], err[te_idx])
 
-            cal = DomainCalibrator().fit(s_calib, e_calib)
-            m   = evaluate(cal, s_test, e_test)
+                print(f"\n── {rep}  ({Xr.shape[1]} feat) ──")
+                print(f"  AUC:       {m['auc']:.3f}")
+                print(f"  F1:        {m['f1']:.3f}   P {m['precision']:.3f}   R {m['recall']:.3f}")
+                print(f"  MAE:       {m['mae']:.4f}   Spearman {m['spearman']:.3f}")
 
-            print(f"  MAE:       {m['mae']:.4f}  (isotonic, continuous error)")
-            print(f"  Spearman:  {m['spearman']:.3f}  (rank correlation: score vs error)")
-            print(f"  AUC-ROC:   {m['auc']:.3f}  (logistic binary classifier)")
-            print(f"  F1:        {m['f1']:.3f}")
-            print(f"  Precision: {m['precision']:.3f}")
-            print(f"  Recall:    {m['recall']:.3f}")
-            print(f"  Fail rate (test): {m['fail_rate']:.1%}  ({m['n_fail']}/{m['n_total']})")
-
-            rows.append({'detector': det, 'domain': domain, **m})
+                rows.append({'domain': domain, 'component': comp, 'representation': rep,
+                             'n_feat': Xr.shape[1], **m})
 
     df  = pd.DataFrame(rows)
     out = RESULTS_DIR / 'calibration_results.csv'
     df.to_csv(out, index=False)
-    print(f"\nSaved calibration metrics → {out.name}")
-    print()
-    print(df[['detector', 'domain', 'mae', 'spearman', 'auc', 'f1',
-              'precision', 'recall', 'fail_rate']].to_string(index=False))
+    cols = ['domain', 'component', 'representation', 'n_feat', 'auc', 'f1',
+            'precision', 'recall', 'mae', 'spearman']
+    print(f"\n{'='*64}\nSUMMARY\n{'='*64}")
+    print(df[cols].to_string(index=False))
+    print(f"\nSaved → {out.name}")
 
 
 if __name__ == '__main__':
