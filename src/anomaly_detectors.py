@@ -9,12 +9,16 @@ pose error after calibration in Stage 2.
 Saves:
     results/anomaly_scores_mahal_{domain}.npy  -- (N,) Mahalanobis scores
     results/anomaly_scores_gmm_{domain}.npy    -- (N,) GMM NLL scores
+    results/anomaly_scores_ocsvm_{domain}.npy  -- (N,) One-Class SVM margin scores
+    results/anomaly_scores_iforest_{domain}.npy -- (N,) Isolation Forest path-length scores
 """
 
 import numpy as np
 import pandas as pd
 from pathlib import Path
 from sklearn.mixture import GaussianMixture
+from sklearn.svm import OneClassSVM
+from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -102,6 +106,103 @@ class GMMDetector:
         return -self.gmm_.score_samples(X_s)
 
 
+# ================================================ One-Class SVM Detector ================================================
+
+class OCSVMDetector:
+    """
+    Fits a One-Class SVM with an RBF kernel to synthetic features.
+
+    Unlike Mahalanobis (single Gaussian) and GMM (mixture of Gaussians), the
+    OC-SVM makes no parametric distributional assumption: it learns a tight
+    boundary around the synthetic support in RBF feature space, so it serves as
+    a complementary *nonparametric* baseline.
+
+    Hyperparameters (no unsupervised criterion like GMM's BIC, so set by default):
+      - nu:    upper bound on the fraction of synthetic points allowed outside
+               the boundary / lower bound on the fraction of support vectors.
+               Small, since synthetic is our "clean" reference distribution.
+      - gamma: RBF kernel width. 'scale' = 1 / (n_features * X.var()).
+
+    Features are standardized before fitting because the RBF kernel is purely
+    distance-based — without it a large-scale feature would dominate the kernel.
+
+    Anomaly score: sklearn's decision_function is positive for inliers and
+    negative for outliers, so we return its negation to match the project-wide
+    "higher = more anomalous" convention.
+    """
+
+    def __init__(self, nu: float = 0.05, gamma='scale'):
+        self.nu = nu
+        self.gamma = gamma
+
+    def fit(self, X: np.ndarray) -> 'OCSVMDetector':
+        self.scaler_ = StandardScaler().fit(X)
+        X_s = self.scaler_.transform(X)
+        self.svm_ = OneClassSVM(kernel='rbf', nu=self.nu, gamma=self.gamma)
+        self.svm_.fit(X_s)
+        print(f"  OC-SVM: nu={self.nu}, gamma={self.gamma}, "
+              f"{self.svm_.support_vectors_.shape[0]} support vectors")
+        return self
+
+    def score(self, X: np.ndarray) -> np.ndarray:
+        """Return (N,) anomaly scores: negated signed margin (higher = more anomalous)."""
+        X_s = self.scaler_.transform(X)
+        # decision_function > 0 inside the boundary (inlier), < 0 outside (outlier);
+        # negate so larger values mean more anomalous, consistent with mahal/gmm.
+        return -self.svm_.decision_function(X_s)
+
+
+# ================================================ Isolation Forest Detector ================================================
+
+class IsolationForestDetector:
+    """
+    Fits an Isolation Forest to synthetic features.
+
+    Unlike Mahalanobis (single Gaussian) and GMM (mixture of Gaussians), it makes
+    no distributional assumption: it builds an ensemble of random binary trees,
+    each isolating points via random feature/threshold splits. Points that are
+    isolated in few splits (short average path length) sit in sparse regions and
+    are flagged anomalous; points buried in dense regions need many splits.
+
+    Because splits are axis-aligned it captures feature *interactions* a single
+    Gaussian misses, but is weaker along correlated/diagonal directions — making
+    it a complementary signal to the distance-based Mahalanobis detector.
+
+    Hyperparameters (no unsupervised criterion like GMM's BIC, so set by default):
+      - n_estimators:  number of random trees; averaging stabilizes the score.
+      - contamination: only affects sklearn's offset_/predict() boundary, not the
+                       continuous score we return, so 'auto' is fine.
+
+    Splits use only feature *ordering*, so standardization is not strictly needed,
+    but we keep it for consistency with the other detectors.
+
+    Anomaly score: sklearn's score_samples is higher for inliers (longer paths),
+    so we return its negation to match the project-wide "higher = more anomalous".
+    """
+
+    def __init__(self, n_estimators: int = 200, contamination='auto'):
+        self.n_estimators = n_estimators
+        self.contamination = contamination
+
+    def fit(self, X: np.ndarray) -> 'IsolationForestDetector':
+        self.scaler_ = StandardScaler().fit(X)
+        X_s = self.scaler_.transform(X)
+        self.iforest_ = IsolationForest(n_estimators=self.n_estimators,
+                                        contamination=self.contamination,
+                                        random_state=42)
+        self.iforest_.fit(X_s)
+        print(f"  Isolation Forest: n_estimators={self.n_estimators}, "
+              f"contamination={self.contamination}")
+        return self
+
+    def score(self, X: np.ndarray) -> np.ndarray:
+        """Return (N,) anomaly scores: negated path-length score (higher = more anomalous)."""
+        X_s = self.scaler_.transform(X)
+        # score_samples is higher for inliers (longer isolation paths);
+        # negate so larger values mean more anomalous, consistent with mahal/gmm.
+        return -self.iforest_.score_samples(X_s)
+
+
 # Train / test loop
 # Train on synthetic features, then score all domains and save results for calibration pipeline
 def main():
@@ -109,8 +210,10 @@ def main():
     print(f"Synthetic: {X_synth.shape[0]} images, {X_synth.shape[1]} features\n")
 
     detectors = {
-        'mahal': MahalanobisDetector(),
-        'gmm':   GMMDetector(),
+        'mahal':   MahalanobisDetector(),
+        'gmm':     GMMDetector(),
+        'ocsvm':   OCSVMDetector(),
+        'iforest': IsolationForestDetector(),
     }
 
     for name, detector in detectors.items():
