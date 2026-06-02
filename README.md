@@ -1,105 +1,155 @@
-# Stanford CS 229 Final Project — Test-Time Confidence Prediction for Spacecraft Pose Estimation Under Domain Shift
-Anjali Sreenivas (anjalisr), Lundeen Cahilly (lcahilly)
+# Test-Time Confidence Prediction for Spacecraft Pose Estimation Under Domain Shift
 
-Predict, at test time, when SPNv2 spacecraft-pose predictions have failed, under the
-synthetic → hardware-in-the-loop (HIL: `lightbox`, `sunlamp`) domain shift — using
-features read out of the pose model itself. A failure is defined by absolute,
-domain-independent thresholds:
+**[Anjali Sreenivas** (anjalisr)](https://github.com/anjalis17), [**Lundeen Cahilly** (lcahilly)](https://github.com/lundeen06)
 
-- **translation:** `E_T > 0.10 m`
-- **rotation:** `E_R > 3.0°`
+## Introduction
 
-## Setup
+This project builds a test-time confidence predictor for [SPNv2](https://github.com/tpark94/spnv2), a state-of-the-art spacecraft pose estimator. SPNv2 already works hard to close the synthetic-to-real domain gap through multi-task learning and Online Domain Refinement (ODR), but its error is still substantially higher on the real hardware-in-the-loop (HIL) domains than on the synthetic data it was trained on, and that degradation is not uniform across images. SPNv2 itself flags uncertainty quantification as an open problem, which finds use in downstream navigation filters (e.g., UKF).
 
-```bash
-uv sync                      # create .venv from pyproject/uv.lock
-source .venv/bin/activate    # or prefix commands with: uv run
-```
+Our work picks up exactly there. Given a new image at deployment, we predict whether SPNv2's pose estimate has failed using features read off a single forward pass and without labels from the deployment domain. Our calibrated answer allows a downstream navigation filter (e.g. a UKF) to down-weight or reject unreliable pose measurements before they corrupt the state estimate.
 
-## Repository layout
+## Abstract
+
+We frame SPNv2 "success" as a binary failure prediction against an absolute, domain-independent physical error threshold (translation `E_T > 0.10m`, rotation `E_R > 3.0°`), treating translation and rotation as separate measurements and thus failure axes. From a single forward pass of the SPNv2 model we extract 13 internal model features (cross-head pose disagreement, segmentation and heatmap entropy, peak heights, detection confidence), train a class-weighted logistic regression on synthetic labels only, and evaluate on the lightbox and sunlamp HIL domains. The predictor matches an oracle trained on HIL labels (translation AUC 0.84 / 0.80 vs 0.85 / 0.80) with zero target labels, which shows the feature-to-failure mapping transfers across the gap even when the head disagreement signal does not. We also test importance weighting in attempt to improve cross-domain error prediction due to covariate shift: the results are unchanged here, confirming that the domain shift is in `p(x)` and not `p(y|x)`, so this feature potentially stands as insurance for more severe domain shifts.
+
+## The domain gap
+
+SPNv2 is trained on synthetic imagery but deployed on real images with harsh illumination, specular glare, and deep shadows. The same "Tango" target spacecraft can look very different across imaging domains
+
+<img src="assets/domain_gap_examples.png" width="100%">
+
+Across the gap, mean translation error climbs `0.05 -> 0.18 -> 0.22 m` and the failure rate `11% -> 41% -> 63%` from synthetic to lightbox to sunlamp. Rotation is even worse, with a `p99` near `150-167°`, corresponding to the `180°` symmetry flips (visually ambiguous) of the satellite body.
+
+<img src="assets/pose_error_components.png" width="100%">
+
+## The feature space
+
+Rather than use pure image pixel statistics, which are not consistent across the domain gap, we decided to read 13 features directly off of SPNv2's forward pass. These features live in pose and confidence space, and thus are tied directly to the prediction rather than the image's appearance, and all of them are available at deployment with no extra labels. Several build on the fact that SPNv2's internal architecture produces two independent pose estimates per image (heatmap-PnP head and EfficientPose regression head) before combining them into one final estimate, so the two heads can be compared against each other as a rough confidence check.
+
+The `ρ` columns are the Spearman correlation between each feature and the true error, averaged over the two HIL domains.
+
+| Feature | What it is | ρ vs E_T | ρ vs E_R |
+|---|---|:---:|:---:|
+| `disagree_t_m` | Distance between the two heads' predicted translations, in meters | **0.58** | 0.20 |
+| `disagree_t_norm` | Same disagreement, normalized by mean target distance | 0.46 | 0.15 |
+| `disagree_R_deg` | Geodesic angle between the two heads' predicted rotations | 0.12 | 0.04 |
+| `effi_cls` | Max EfficientPose detection confidence | -0.45 | -0.18 |
+| `hm_peak_mean` | Mean keypoint-heatmap peak height (localization confidence) | -0.32 | -0.23 |
+| `hm_peak_min` | Peak height of the worst-localized keypoint | -0.22 | -0.17 |
+| `hm_nconf` | Number of keypoints above the detection threshold | -0.25 | -0.15 |
+| `hm_entropy_mean` | Mean per-keypoint heatmap entropy (spread) | 0.28 | 0.18 |
+| `seg_entropy` | Mean entropy of the foreground segmentation mask | -0.02 | 0.04 |
+| `target_distance` | Predicted range to target, `‖t‖` | 0.25 | 0.11 |
+| `bbox_area` | Area of the predicted bounding box | -0.32 | -0.11 |
+| `bbox_aspect` | Aspect ratio of the predicted bounding box | -0.03 | 0.00 |
+| `reject` | Heatmap-PnP rejection flag (dropped, zero variance on synthetic) | — | — |
+
+The takeaway is that no single feature is enough. Translation has one strong, transferable signal in `disagree_t_m` (stable at `ρ ≈ 0.56-0.60` across all three domains), but the matching rotation feature `disagree_R_deg` is essentially dead. Rotation failures are flawed, because `180°` symmetry of the Tango spacecraft flips can fool both pose heads at once. In this case, the heads still agree with each other even when both are long, leaving head-disagreement structurally blind to these failures. Rotation reliability instead has to be pieced together from several weaker confidence cues like `hm_peak_mean` and `effi_cls`.
+
+<img src="assets/feature_spearman.png" width="100%">
+
+## Results
+
+We train a class-weighted logistic regression on synthetic features with binary fail/pass labels, then apply it unchanged to HIL. We also add importance weighting (IW) for covariate-shift correction: a domain classifier estimates the density ratio `w = p/(1-p)` and reweights synthetic samples toward those that look HIL-like. The oracle is the same model trained on HIL labels and serves as the upper bound.
+
+The synthetic-only method matches the HIL-trained oracle. We predict failure on a new domain with no labels from it, because the feature-to-failure mapping transfers.
+
+| Domain | Axis | Random | Disagreement | Method | IW | Oracle |
+|--------|------|:------:|:------------:|:------:|:----:|:------:|
+| lightbox | E_T | 0.500 | 0.800 | **0.841** | 0.839 | 0.846 |
+| lightbox | E_R | 0.500 | 0.506 | **0.734** | 0.732 | 0.734 |
+| sunlamp  | E_T | 0.500 | 0.766 | **0.802** | 0.790 | 0.799 |
+| sunlamp  | E_R | 0.500 | 0.539 | **0.627** | 0.629 | 0.631 |
+
+<img src="assets/auc_bars.png" width="100%">
+
+Translation is strong. Rotation is harder but not hopeless: although the disagreement baseline collapses to chance, the full feature set still recovers moderate signal (AUC 0.73 / 0.63) from the weaker heatmap and confidence cues.
+
+<img src="assets/roc_curves.png" width="80%">
+
+Importance weighting ended up as inert. The domain shift is real and large (domain-classifier AUC 0.82 / 0.91, effective sample size collapsing to 12-24%), yet AUC does not move. This confirms the fact that correcting our `p(x)` is unnecessary because our predicted `p(y|x)` is already stable. IW, however, costs nothing and is the mechanism that could activate under a more severe, unseen on-orbit shift.
+
+<img src="assets/iw_weights.png" width="60%">
+
+## Uncertainty gating
+
+Freezing the decision threshold on the synthetic-validation split and applying it to HIL gives a deployable accept/reject gate. The translation gate is genuinely useful (precision 0.75 / 0.85 at recall around 0.62). The rotation gate is marginal, consistent with the weaker rotation signal.
+
+| Domain | Axis | Precision | Recall | Flagged rate |
+|--------|------|:---------:|:------:|:------------:|
+| lightbox | E_T | 0.753 | 0.634 | 0.345 |
+| lightbox | E_R | 0.550 | 0.471 | 0.235 |
+| sunlamp  | E_T | 0.847 | 0.622 | 0.463 |
+| sunlamp  | E_R | 0.591 | 0.423 | 0.324 |
+
+The payoff is in physical units. Images the gate rejects carry roughly 3 to 4.5 times the true translation error of accepted ones (0.36 vs 0.08 m on lightbox, 0.35 vs 0.12 m on sunlamp). Predicted failure probability rank-correlates with true error, so the score is a calibrated risk ranking rather than an error regressor, which is what a navigation filter needs to gate or down-weight a measurement.
+
+<img src="assets/risk_vs_error.png" width="90%">
+
+## Repo structure
 
 ```
 src/
-  features/   get_model_features.py   # extract SPNv2 model-internal features from inference
-              loaders.py              # shared feature loading (drops zero-variance 'reject')
-              plot_feature_scales.py  # feature-preprocessing justification figure
-  pipeline/   baselines.py            # dumb baselines: random + disagreement-threshold
-              models.py               # our method: supervised + importance-weighted LR
-              iw_diagnostics.py       # stress-test whether importance weighting helps
-  utils/      errors.py               # pose-error / quaternion math
-              data.py                 # SPEED+ label & camera loading
-notebooks/    plot_estimator_error_dist.ipynb        # domain-gap pose-error figure
-              plot_feature_error_correlation.ipynb   # feature ↔ error correlation figure
-results/      *.npy / *.csv           # features, per-image errors, and outputs (gitignored)
-figures/      *.png / *.pdf           # generated figures (gitignored)
+  features/   get_model_features.py     # 13 SPNv2-internal features from one forward pass
+              loaders.py
+              plot_feature_scales.py
+  pipeline/   baselines.py              # random + SPNv2 head-disagreement threshold
+              models.py                 # supervised + importance-weighted LR
+              iw_diagnostics.py         # stress-tests whether IW actually helps
+  utils/      errors.py                 # pose-error / quaternion math
+              data.py                   # SPEED+ label / camera loading
+  analysis/   run_all.py + plots/       # regenerate every writeup figure
+results/      *.npy / *.csv             # features, per-image errors, outputs (gitignored)
+figures/      *.png / *.pdf             # generated figures (gitignored)
+report/       final_report.tex          # CS229 final report
 ```
 
-Scripts run directly **from the repo root**:
+## Usage
 
-```bash
-python src/pipeline/models.py
-```
+1. Download [SPEED+](https://techfinder.stanford.edu/technology/next-generation-spacecraft-pose-estimation-dataset-speed)
+2. Install the [SPNv2](https://github.com/tpark94/spnv2) model
+3. Set up the environment:
+   ```bash
+   uv sync
+   source .venv/bin/activate
+   ```
+4. Run SPNv2 inference on SPEED+ (GPU recommended):
+   ```bash
+   bash scripts/run_test.sh
+   ```
+5. Run the pipeline from the repo root:
+   ```bash
+   python src/features/get_model_features.py   # extract features
+   python src/pipeline/baselines.py            # random + disagreement baselines
+   python src/pipeline/models.py               # supervised + importance-weighted LR
+   python src/analysis/run_all.py              # regenerate all figures
+   ```
 
-## How to run everything
+## Analysis plots (writeup order)
 
-All commands are from the repo root. Steps 0–1 regenerate the feature matrix from
-raw SPNv2 inference; if `results/model_features_*.npy` and
-`results/per_image_errors_*.csv` already exist, **skip to step 2**.
-
-| # | Command | Produces | Notes |
-|---|---------|----------|-------|
-| 0 | `bash scripts/run_test.sh` | `spnv2/.../predictions_pose.mat` per split | Runs SPNv2 inference. Needs the `spnv2/` submodule, the SPEED+ `data/`, and the model checkpoint. |
-| 1 | `python src/features/get_model_features.py` | `results/model_features_{domain}.npy`, `results/model_feature_names.npy` | Reads the `predictions_pose.mat` from step 0. |
-| 2 | `python src/features/plot_feature_scales.py` | `figures/feature_preprocessing.{png,pdf}` | Motivates dropping `reject` and standardizing. |
-| 3 | `python src/pipeline/baselines.py` | `results/baseline_results.csv` | Random + disagreement baselines, AUC per domain × axis. |
-| 4 | `python src/pipeline/models.py` | `results/importance_weighting_results.csv`, `figures/domain_calibration.{png,pdf}`, `figures/importance_weights.png` | Supervised + importance-weighted classifiers, evaluated on HIL. |
-| 5 | `python src/pipeline/iw_diagnostics.py` | stdout only | Does IW beat plain supervised? Clip sweep + oracle ceiling. |
-
-## Analysis figures (writeup, story order)
-
-`src/analysis/` turns the model outputs into the figures for the writeup. Regenerate
-all of them at once:
-
-```bash
-python src/analysis/run_all.py
-```
-
-or run any one on its own (e.g. `python src/analysis/plot_roc_curves.py`). Each
-reuses the deployed fits from `models.py` / `baselines.py` via
-`src/analysis/model_outputs.py` — no SPNv2 re-run, no retraining.
-
-| Beat | Plot | Script | Figure |
+| Part | Plot | Script | Figure |
 |------|------|--------|--------|
-| 1 — there's a domain gap | pose-error distribution | `plot_error_distributions.py` | `pose_error_distribution.*` |
+| 1, domain gap | pose-error distribution | `plot_error_distributions.py` | `pose_error_distribution.*` |
 | 1 | error split into translation/rotation | `plot_error_distributions.py` | `pose_error_components.*` |
-| 2 — our features see the gap | per-feature Spearman ρ vs E_T/E_R | `plot_feature_correlation.py` | `feature_spearman.*` |
-| 3 — method catches failures | ROC, 4 panels (method/IW/disagreement/oracle/random) | `plot_roc_curves.py` | `roc_curves.*` |
-| 3 | AUC bars (method vs IW vs oracle) | `plot_auc_bars.py` | `auc_bars.*` (+ `results/analysis_auc.csv`) |
-| 4 — usable gate, not just a ranker | operating point: synth-val threshold frozen → HIL P/R | `plot_operating_point.py` | `operating_point.*` (+ `results/operating_point.csv`) |
-| 4 | predicted risk vs true error, accept/reject | `plot_risk_vs_error.py` | `risk_vs_error.*` |
-| 5 — why IW is inert | importance-weight histogram p/(1−p) | `plot_iw_weights.py` | `iw_weights.*` |
+| 2, features see the gap | per-feature Spearman ρ vs E_T/E_R | `plot_feature_correlation.py` | `feature_spearman.*` |
+| 3, method catches failures | ROC, 4 panels | `plot_roc_curves.py` | `roc_curves.*` |
+| 3 | AUC bars (method vs IW vs oracle) | `plot_auc_bars.py` | `auc_bars.*` |
+| 4, usable gate | synth-val threshold frozen, HIL precision/recall | `plot_operating_point.py` | `operating_point.*` |
+| 4 | predicted risk vs true error | `plot_risk_vs_error.py` | `risk_vs_error.*` |
+| 5, why IW is inert | importance-weight histogram p/(1-p) | `plot_iw_weights.py` | `iw_weights.*` |
 
-Every script also writes its numbers to `results/` so the figures are backed by a
-table you can quote directly:
+## Citation
 
-| Stat CSV | Contents |
-|----------|----------|
-| `error_distribution_stats.csv` | per-domain mean/median/p90/p99 of E_T, E_R, SPEED score + failure rates |
-| `feature_spearman.csv` | per-feature Spearman ρ vs E_T/E_R, per domain |
-| `analysis_auc.csv` | AUC for method / IW / disagreement / oracle, per domain × axis |
-| `operating_point.csv` | frozen threshold, precision, recall, flagged rate, fail rate per domain × axis |
-| `risk_error_correlation.csv` | Spearman(pred prob, true error) + mean error of accepted vs rejected images |
-| `iw_weight_stats.csv` | domain-classifier AUC (gap size), weight mean/max, effective sample size |
+Built on SPNv2 ([Park & D'Amico, 2023](https://doi.org/10.1016/j.asr.2023.03.036)) and the
+[SPEED+](https://techfinder.stanford.edu/technology/next-generation-spacecraft-pose-estimation-dataset-speed)
+dataset from Stanford's Space Rendezvous Laboratory.
 
-## What each result shows
-
-- **`baseline_results.csv`** — per (domain, axis): `random` (AUC = 0.5 floor) and
-  `disagreement` (the multi-head disagreement feature used directly as the failure
-  score: `disagree_t_m` for translation, `disagree_R_deg` for rotation). Scored on
-  `reject == 0` rows only (`disagree_*` is degenerate on PnP-rejected images).
-- **`importance_weighting_results.csv`** — per (domain, component): `random`,
-  `supervised` (class-weighted LR trained on synthetic), and `importance_weighted`
-  (same, reweighted toward the target domain). AUC / F1 / precision / recall,
-  evaluated on HIL labels (used for evaluation only — never for fitting).
-- **`iw_diagnostics`** — whether importance weighting actually improves on the
-  supervised classifier, vs. an oracle trained on HIL itself.
+```bibtex
+@article{park2023spnv2,
+    title  = {Robust multi-task learning and online refinement for spacecraft pose estimation across domain gap},
+    author = {Park, Tae Ha and D'Amico, Simone},
+    journal = {Advances in Space Research},
+    year   = {2023},
+    doi    = {10.1016/j.asr.2023.03.036},
+}
+```
