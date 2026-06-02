@@ -56,10 +56,10 @@ The synthetic-only method matches the HIL-trained oracle. We predict failure on 
 
 | Domain | Axis | Random | Disagreement | Method | IW | Oracle |
 |--------|------|:------:|:------------:|:------:|:----:|:------:|
-| lightbox | E_T | 0.500 | 0.800 | **0.841** | 0.839 | 0.846 |
-| lightbox | E_R | 0.500 | 0.506 | **0.734** | 0.732 | 0.734 |
-| sunlamp  | E_T | 0.500 | 0.766 | **0.802** | 0.790 | 0.799 |
-| sunlamp  | E_R | 0.500 | 0.539 | **0.627** | 0.629 | 0.631 |
+| lightbox | E_T | 0.500 | 0.800 | **0.841** | **0.839** | 0.846 |
+| lightbox | E_R | 0.500 | 0.506 | **0.734** | **0.732** | 0.734 |
+| sunlamp  | E_T | 0.500 | 0.766 | **0.802** | **0.790** | 0.799 |
+| sunlamp  | E_R | 0.500 | 0.539 | **0.627** | **0.629** | 0.631 |
 
 <img src="assets/auc_bars.png" width="100%">
 
@@ -82,7 +82,7 @@ Freezing the decision threshold on the synthetic-validation split and applying i
 | sunlamp  | E_T | 0.847 | 0.622 | 0.463 |
 | sunlamp  | E_R | 0.591 | 0.423 | 0.324 |
 
-The payoff is in physical units. Images the gate rejects carry roughly 3 to 4.5 times the true translation error of accepted ones (0.36 vs 0.08 m on lightbox, 0.35 vs 0.12 m on sunlamp). Predicted failure probability rank-correlates with true error, so the score is a calibrated risk ranking rather than an error regressor, which is what a navigation filter needs to gate or down-weight a measurement.
+Predicted failure probability correlates with true error, so the score is a calibrated risk ranking rather than an error regressor, which is what a navigation filter needs to gate or down-weight a measurement.
 
 <img src="assets/risk_vs_error.png" width="100%">
 
