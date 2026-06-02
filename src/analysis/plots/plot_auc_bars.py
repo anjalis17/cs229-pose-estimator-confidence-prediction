@@ -29,7 +29,7 @@ from src.analysis.model_outputs import all_domain_outputs
 from src.pipeline.models import DOMAINS, COMPONENTS
 
 TABLE_METHODS = ['method', 'iw', 'disagreement', 'oracle']   # saved to CSV
-BARS          = ['method', 'iw', 'oracle']                   # subset drawn as bars
+BARS          = ['method', 'iw', 'disagreement', 'oracle']   # subset drawn as bars
 
 
 def _auc_table(outs):
@@ -51,13 +51,14 @@ def _auc_table(outs):
 def plot(df):
     groups = [(d, c) for d in DOMAINS for c in COMPONENTS]
     x = np.arange(len(groups))
-    w = 0.25
+    n = len(BARS)
+    w = 0.8 / n
 
     fig, ax = plt.subplots(figsize=(10, 4.6))
     for k, name in enumerate(BARS):
         vals = [df[(df.domain == d) & (df.component == c) & (df.method == name)]
                 .auc.iloc[0] for d, c in groups]
-        bars = ax.bar(x + (k - 1) * w, vals, width=w,
+        bars = ax.bar(x + (k - (n - 1) / 2) * w, vals, width=w,
                       color=METHOD_COLORS[name], label=METHOD_LABELS[name])
         for b, v in zip(bars, vals):
             if np.isfinite(v):
@@ -70,7 +71,7 @@ def plot(df):
     ax.set_ylim(0.45, 1.0)
     ax.set_title('Failure-prediction AUC: method vs importance-weighted vs oracle',
                  fontweight='bold')
-    ax.legend(frameon=False, fontsize=9, ncol=4, loc='upper center',
+    ax.legend(frameon=False, fontsize=9, ncol=5, loc='upper center',
               bbox_to_anchor=(0.5, -0.12))
     ax.grid(alpha=0.25, axis='y')
     fig.tight_layout()
