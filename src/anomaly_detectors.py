@@ -22,14 +22,27 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
 PROJECT_ROOT = Path(__file__).parent.parent
-RESULTS_DIR  = PROJECT_ROOT / 'results'
+RESULTS_DIR  = PROJECT_ROOT / 'results' / 'NEW_DATA'
 
 DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
+# Features dropped before fitting any detector.
+# 'reject' is constant (=0) on all synthetic images → zero variance. It carries no
+# in-distribution signal and actively corrupts the Mahalanobis score: with the 1e-6
+# ridge, a HIL image with reject=1 contributes ~(1-0)^2 / 1e-6 ≈ 1e6 to the squared
+# distance, swamping the real signal for the handful of rejected HIL images.
+DROP_FEATURES = ['reject']
+
+# 13 saved feature names; we keep all but DROP_FEATURES (→ 12 features).
+ALL_FEATURE_NAMES = np.load(RESULTS_DIR / 'model_feature_names.npy', allow_pickle=True).tolist()
+KEEP_IDX   = [i for i, n in enumerate(ALL_FEATURE_NAMES) if n not in DROP_FEATURES]
+KEEP_NAMES = [ALL_FEATURE_NAMES[i] for i in KEEP_IDX]
+
 
 def load_features(domain: str) -> np.ndarray:
-    # return np.load(RESULTS_DIR / f'img_stats_{domain}.npy')
-    return np.load(RESULTS_DIR / f'model_features_{domain}.npy')
+    """Load the model features for a domain, dropping DROP_FEATURES (→ 12 columns)."""
+    X = np.load(RESULTS_DIR / f'model_features_{domain}.npy')
+    return X[:, KEEP_IDX]
 
 
 # ================================================ Mahalanobis Detector ================================================
@@ -85,8 +98,12 @@ class GMMDetector:
         best_bic, best_gmm = np.inf, None
         print("  GMM BIC selection:")
         for k in self.K_CANDIDATES:
+            # reg_covar adds a small ridge to each component covariance so EM
+            # stays numerically stable: without it a component can collapse onto
+            # a near-degenerate direction (e.g. the discrete hm_nconf) at high K
+            # and make the covariance non-positive-definite.
             gmm = GaussianMixture(n_components=k, covariance_type='full',
-                                  random_state=42, max_iter=200)
+                                  reg_covar=1e-4, random_state=42, max_iter=200)
             gmm.fit(X_s)
             bic = gmm.bic(X_s)
             print(f"    K={k:>2}  BIC={bic:.1f}")
@@ -207,7 +224,11 @@ class IsolationForestDetector:
 # Train on synthetic features, then score all domains and save results for calibration pipeline
 def main():
     X_synth = load_features('synthetic')
-    print(f"Synthetic: {X_synth.shape[0]} images, {X_synth.shape[1]} features\n")
+    print(f"Synthetic: {X_synth.shape[0]} images, {X_synth.shape[1]} features")
+    print(f"Dropped {DROP_FEATURES} → keeping {len(KEEP_NAMES)}: {KEEP_NAMES}\n")
+
+    # persist the kept feature names for the supervised pipeline / plots
+    np.save(RESULTS_DIR / 'model_feature_names_kept.npy', np.array(KEEP_NAMES, dtype=object))
 
     detectors = {
         'mahal':   MahalanobisDetector(),
