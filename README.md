@@ -84,7 +84,7 @@ Freezing the decision threshold on the synthetic-validation split and applying i
 
 The payoff is in physical units. Images the gate rejects carry roughly 3 to 4.5 times the true translation error of accepted ones (0.36 vs 0.08 m on lightbox, 0.35 vs 0.12 m on sunlamp). Predicted failure probability rank-correlates with true error, so the score is a calibrated risk ranking rather than an error regressor, which is what a navigation filter needs to gate or down-weight a measurement.
 
-<img src="assets/risk_vs_error.png" width="90%">
+<img src="assets/risk_vs_error.png" width="100%">
 
 ## Repo structure
 
