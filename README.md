@@ -1,6 +1,6 @@
 # Test-Time Confidence Prediction for Spacecraft Pose Estimation Under Domain Shift
 
-**[Anjali Sreenivas** (anjalisr)](https://github.com/anjalis17), [**Lundeen Cahilly** (lcahilly)](https://github.com/lundeen06)
+[Anjali Sreenivas (anjalisr)](https://github.com/anjalis17), [Lundeen Cahilly (lcahilly)](https://github.com/lundeen06)
 
 ## Introduction
 
@@ -65,11 +65,11 @@ The synthetic-only method matches the HIL-trained oracle. We predict failure on 
 
 Translation is strong. Rotation is harder but not hopeless: although the disagreement baseline collapses to chance, the full feature set still recovers moderate signal (AUC 0.73 / 0.63) from the weaker heatmap and confidence cues.
 
-<img src="assets/roc_curves.png" width="80%">
+<img src="assets/roc_curves.png" width="100%">
 
 Importance weighting ended up as inert. The domain shift is real and large (domain-classifier AUC 0.82 / 0.91, effective sample size collapsing to 12-24%), yet AUC does not move. This confirms the fact that correcting our `p(x)` is unnecessary because our predicted `p(y|x)` is already stable. IW, however, costs nothing and is the mechanism that could activate under a more severe, unseen on-orbit shift.
 
-<img src="assets/iw_weights.png" width="60%">
+<img src="assets/iw_weights.png" width="100%">
 
 ## Uncertainty gating
 
