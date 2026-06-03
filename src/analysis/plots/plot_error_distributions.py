@@ -30,9 +30,8 @@ DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
 
 def _load():
-    # full per-image error splits (same source as the notebook), not the old
-    # 1001-row results/per_image_errors_*.csv
-    return {d: pd.read_csv(f'per_image_errors_{d}.csv') for d in DOMAINS}
+    # full per-image error splits (same source as the notebook)
+    return {d: pd.read_csv(RESULTS_DIR / f'per_image_errors_{d}.csv') for d in DOMAINS}
 
 
 def error_stats(errs):
