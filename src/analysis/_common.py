@@ -24,7 +24,7 @@ METHOD_COLORS = {
 }
 METHOD_LABELS = {
     'method':       'supervised (ours)',
-    'iw':           'importance-weighted',
+    'iw':           'importance-weighted (ours)',
     'disagreement': 'disagreement threshold',
     'oracle':       'oracle (HIL-trained)',
     'random':       'random',

@@ -5,7 +5,7 @@ Beat 3 — our method catches failures, the dumb baselines don't.
 ROC curves in four panels (lightbox / sunlamp × translation / rotation). Each
 panel overlays:
     method        supervised LR (ours)
-    iw            importance-weighted LR
+    iw            importance-weighted LR (ours)
     disagreement  disagreement-threshold baseline
     oracle        HIL-trained upper bound
     random        chance diagonal
