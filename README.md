@@ -28,7 +28,7 @@ Rather than use pure image pixel statistics, which are not consistent across the
 
 The `ρ` columns are the Spearman correlation between each feature and the true error, averaged over the two HIL domains.
 
-| Feature | What it is | ρ vs E_T | ρ vs E_R |
+| Feature | Description | ρ vs E_T | ρ vs E_R |
 |---|---|:---:|:---:|
 | `disagree_t_m` | Distance between the two heads' predicted translations, in meters | **0.58** | 0.20 |
 | `disagree_t_norm` | Same disagreement, normalized by mean target distance | 0.46 | 0.15 |
