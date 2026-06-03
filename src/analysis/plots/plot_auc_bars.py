@@ -26,10 +26,32 @@ from src.analysis._common import (
     plt, RESULTS_DIR, METHOD_COLORS, METHOD_LABELS, COMP_NAME, save,
 )
 from src.analysis.model_outputs import all_domain_outputs
-from src.pipeline.models import DOMAINS, COMPONENTS
+from src.pipeline.models import DOMAINS, COMPONENTS, RANDOM_STATE
 
 TABLE_METHODS = ['method', 'iw', 'disagreement', 'oracle']   # saved to CSV
 BARS          = ['method', 'iw', 'disagreement', 'oracle']   # subset drawn as bars
+
+N_BOOT = 2000   # bootstrap resamples for the AUC confidence interval
+_RNG   = np.random.default_rng(RANDOM_STATE)
+
+
+def _bootstrap_auc_ci(y, s, n_boot=N_BOOT):
+    """Point AUC + 95% CI by resampling the evaluation set with replacement.
+    The CI captures finite-sample noise on HIL, so near-equal bars (and the
+    apparent 'beating' of the oracle ceiling) can be read as statistical ties."""
+    ok = np.isfinite(s)
+    y, s = y[ok], s[ok]
+    if len(y) == 0 or len(np.unique(y)) < 2:
+        return np.nan, np.nan, np.nan
+    auc = roc_auc_score(y, s)
+    boots = []
+    n = len(y)
+    for _ in range(n_boot):
+        idx = _RNG.integers(0, n, n)
+        if len(np.unique(y[idx])) > 1:
+            boots.append(roc_auc_score(y[idx], s[idx]))
+    lo, hi = np.percentile(boots, [2.5, 97.5])
+    return auc, lo, hi
 
 
 def _auc_table(outs):
@@ -39,12 +61,9 @@ def _auc_table(outs):
             data = outs[dom][comp]
             y = data['y_true']
             for name in TABLE_METHODS:
-                s  = data['probs'][name]
-                ok = np.isfinite(s)
-                auc = (roc_auc_score(y[ok], s[ok])
-                       if ok.sum() and len(np.unique(y[ok])) > 1 else np.nan)
-                rows.append({'domain': dom, 'component': comp,
-                             'method': name, 'auc': auc})
+                auc, lo, hi = _bootstrap_auc_ci(y, data['probs'][name])
+                rows.append({'domain': dom, 'component': comp, 'method': name,
+                             'auc': auc, 'ci_lo': lo, 'ci_hi': hi})
     return pd.DataFrame(rows)
 
 
@@ -56,13 +75,19 @@ def plot(df):
 
     fig, ax = plt.subplots(figsize=(10, 4.6))
     for k, name in enumerate(BARS):
-        vals = [df[(df.domain == d) & (df.component == c) & (df.method == name)]
-                .auc.iloc[0] for d, c in groups]
+        sub  = [df[(df.domain == d) & (df.component == c) & (df.method == name)].iloc[0]
+                for d, c in groups]
+        vals = np.array([r.auc for r in sub])
+        # asymmetric error bars from the bootstrap CI (clip tiny negatives from rounding)
+        yerr = np.array([np.clip(vals - [r.ci_lo for r in sub], 0, None),
+                         np.clip([r.ci_hi for r in sub] - vals, 0, None)])
         bars = ax.bar(x + (k - (n - 1) / 2) * w, vals, width=w,
-                      color=METHOD_COLORS[name], label=METHOD_LABELS[name])
+                      color=METHOD_COLORS[name], label=METHOD_LABELS[name],
+                      yerr=yerr, capsize=2.5,
+                      error_kw=dict(lw=0.9, ecolor='#333333'))
         for b, v in zip(bars, vals):
             if np.isfinite(v):
-                ax.text(b.get_x() + b.get_width() / 2, v + 0.01, f'{v:.2f}',
+                ax.text(b.get_x() + b.get_width() / 2, v + 0.012, f'{v:.2f}',
                         ha='center', va='bottom', fontsize=7.5)
     ax.axhline(0.5, color=METHOD_COLORS['random'], ls='--', lw=1.2, label='random (0.50)')
     ax.set_xticks(x)

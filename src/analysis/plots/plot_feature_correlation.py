@@ -28,14 +28,17 @@ DOMAINS    = ['synthetic', 'lightbox', 'sunlamp']
 COMPONENTS = ['E_T', 'E_R']
 
 
+DATA_DIR = RESULTS_DIR / 'NEW_DATA'   # feature matrices + per-image errors live here
+
+
 def _feature_table():
     """Long table: domain × feature × component → Spearman ρ."""
-    names = [str(n) for n in np.load(RESULTS_DIR / 'model_feature_names.npy',
+    names = [str(n) for n in np.load(DATA_DIR / 'model_feature_names.npy',
                                      allow_pickle=True)]
     rows = []
     for d in DOMAINS:
-        X  = np.load(RESULTS_DIR / f'model_features_{d}.npy')
-        df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{d}.csv')
+        X  = np.load(DATA_DIR / f'model_features_{d}.npy')
+        df = pd.read_csv(DATA_DIR / f'per_image_errors_{d}.csv')
         n  = min(len(X), len(df))
         X, df = X[:n], df.iloc[:n]
         for comp in COMPONENTS:
@@ -55,25 +58,24 @@ def plot(df, names):
     y = np.arange(len(order))
     bar_h = 0.25
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 0.5 * len(order) + 2), sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(8, 0.24 * len(order) + 0.9), sharey=True)
     for ax, comp in zip(axes, COMPONENTS):
         for k, d in enumerate(DOMAINS):
             sub = df[(df.component == comp) & (df.domain == d)].set_index('feature')
             vals = [sub.loc[f, 'rho'] if f in sub.index else np.nan for f in order]
             ax.barh(y + (k - 1) * bar_h, vals, height=bar_h,
-                    color=DOMAIN_COLORS[d], label=d)
+                    color=DOMAIN_COLORS[d], alpha=0.75,
+                    edgecolor='white', linewidth=0.4, label=d)
         ax.axvline(0, color='k', lw=0.8)
-        for x in (-0.3, 0.3):
-            ax.axvline(x, color='0.6', ls=':', lw=1)   # |ρ|>0.3 "useful" guide
         ax.set_yticks(y)
-        ax.set_yticklabels(order, fontsize=8)
-        ax.set_xlabel('Spearman ρ')
-        ax.set_title(f'{COMP_NAME[comp].capitalize()} error  ($E_{comp[-1]}$)')
+        ax.set_yticklabels(order, fontsize=7.5, fontweight='bold')
+        ax.set_xlabel('Spearman ρ', fontweight='bold')
+        ax.set_title(f'{COMP_NAME[comp].capitalize()} error  ($E_{comp[-1]}$)',
+                     fontsize=10, fontweight='bold')
         ax.set_xlim(-1, 1)
         ax.grid(alpha=0.2, axis='x')
-    axes[0].legend(frameon=False, fontsize=9, loc='lower left')
-    fig.suptitle('Per-feature Spearman ρ vs pose error  '
-                 '(dotted = |ρ| = 0.3 usefulness guide)', fontweight='bold')
+    axes[0].legend(frameon=False, fontsize=8, loc='lower left')
+    fig.suptitle('Per-feature Spearman ρ vs pose error', fontweight='bold')
     fig.tight_layout()
     save(fig, 'feature_spearman')
 
