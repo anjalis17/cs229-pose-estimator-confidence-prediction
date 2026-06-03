@@ -11,8 +11,9 @@ RESULTS_DIR  = PROJECT_ROOT / 'results'
 FIG_DIR      = PROJECT_ROOT / 'figures'
 FIG_DIR.mkdir(exist_ok=True)
 
-# one color per domain (synthetic + the two HIL domains)
-DOMAIN_COLORS = {'synthetic': '#4C72B0', 'lightbox': '#DD8452', 'sunlamp': '#55A868'}
+# one color per domain (synthetic + the two HIL domains) — matches the palette
+# used in notebooks/plot_estimator_error_dist.ipynb so all domain figures agree
+DOMAIN_COLORS = {'synthetic': '#2166ac', 'lightbox': '#4f0942', 'sunlamp': '#d6604d'}
 
 # one color per method / score in the comparison plots
 METHOD_COLORS = {

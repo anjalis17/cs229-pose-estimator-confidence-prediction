@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import numpy as np
 import pandas as pd
+from matplotlib.lines import Line2D
 
 from src.analysis._common import (
     plt, RESULTS_DIR, DOMAIN_COLORS, COMP_NAME, COMP_UNIT, COMP_THRESHOLD, save,
@@ -29,7 +30,10 @@ DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
 
 def _load():
-    return {d: pd.read_csv(RESULTS_DIR / f'per_image_errors_{d}.csv') for d in DOMAINS}
+    # full per-image error splits (same source as the notebook), not the old
+    # 1001-row results/per_image_errors_*.csv
+    new_data = RESULTS_DIR / 'NEW_DATA'
+    return {d: pd.read_csv(new_data / f'per_image_errors_{d}.csv') for d in DOMAINS}
 
 
 def error_stats(errs):
@@ -71,6 +75,7 @@ def plot_speed_score(errs):
         med = errs[d]['speed_score'].median()
         _log_hist(ax, errs[d]['speed_score'], DOMAIN_COLORS[d],
                   f'{d}  (median={med:.3f})')
+        ax.axvline(med, color=DOMAIN_COLORS[d], ls='--', lw=1.4)
     ax.set_xlabel('SPEED score  =  E_R [rad] + E_T / ||t||   (log scale)')
     ax.set_ylabel('density')
     ax.set_title('Pose-error distribution shifts across domains')
@@ -85,17 +90,26 @@ def plot_components(errs):
     for ax, comp in zip(axes, ['E_T', 'E_R']):
         for d in DOMAINS:
             med = errs[d][comp].median()
-            _log_hist(ax, errs[d][comp], DOMAIN_COLORS[d], f'{d}  (med={med:.3g})')
+            _log_hist(ax, errs[d][comp], DOMAIN_COLORS[d],
+                      f'{d}  (median={med:.3g})')
+            ax.axvline(med, color=DOMAIN_COLORS[d], ls='--', lw=1.4)
         thr = COMP_THRESHOLD[comp]
-        ax.axvline(thr, color='k', ls='--', lw=1.3,
+        # dotted (not dashed) so it reads clearly differently from the median lines
+        ax.axvline(thr, color='k', ls=':', lw=1.8,
                    label=f'fail threshold ({thr:g} {COMP_UNIT[comp]})')
-        ax.set_xlabel(f'{COMP_NAME[comp]} error  $E_{{{comp[-1]}}}$ '
-                      f'[{COMP_UNIT[comp]}]  (log scale)')
-        ax.set_ylabel('density')
-        ax.set_title(f'{COMP_NAME[comp].capitalize()} error  ($E_{comp[-1]}$)')
-        ax.legend(frameon=False, fontsize=8.5)
+        ax.set_xlabel(f'{COMP_NAME[comp].capitalize()} Error  $E_{{{comp[-1]}}}$ '
+                      f'[{COMP_UNIT[comp]}]  (Log Scale)')
+        ax.set_ylabel('Density')
+        ax.set_title(f'{COMP_NAME[comp].capitalize()} Error  ($E_{comp[-1]}$)')
+        # explicit key for the dashed per-domain median lines, placed before the
+        # dotted fail-threshold entry
+        median_key = Line2D([0], [0], color='0.4', ls='--', lw=1.4,
+                            label='median (per domain)')
+        handles, _ = ax.get_legend_handles_labels()
+        ax.legend(handles=handles[:-1] + [median_key] + handles[-1:],
+                  frameon=False, fontsize=8.5)
         ax.grid(alpha=0.25, which='both')
-    fig.suptitle('Domain gap splits into translation and rotation error',
+    fig.suptitle('Domain Gap Splits into Translation and Rotation Error',
                  fontweight='bold')
     fig.tight_layout()
     save(fig, 'pose_error_components')
