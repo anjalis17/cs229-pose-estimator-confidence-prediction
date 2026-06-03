@@ -11,7 +11,7 @@ from pathlib import Path
 from src.utils.errors import quaternion_to_rotation_matrix
 
 
-def load_labels(json_path: str) -> list[dict]:
+def load_labels(json_path):
     with open(json_path, 'r') as f:
         data = json.load(f)
 
@@ -27,6 +27,6 @@ def load_labels(json_path: str) -> list[dict]:
     return labels
 
 
-def load_camera(camera_json_path: str) -> dict:
+def load_camera(camera_json_path):
     with open(camera_json_path, 'r') as f:
         return json.load(f)

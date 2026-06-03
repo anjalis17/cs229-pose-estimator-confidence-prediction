@@ -28,7 +28,7 @@ def _table():
         thresholds[comp] = t
         for dom in DOMAINS:
             X_hil, df_hil = load_domain(dom)
-            yt   = fail_labels(df_hil, comp)
+            yt = fail_labels(df_hil, comp)
             pred = (clf.predict_proba(X_hil)[:, 1] >= t).astype(int)
             rows.append({
                 'domain': dom, 'component': comp, 'threshold': t,
@@ -47,7 +47,7 @@ def plot(df):
     w = 0.38
     fig, ax = plt.subplots(figsize=(9.5, 4.6))
     prec = [df[(df.domain == d) & (df.component == c)].precision.iloc[0] for d, c in groups]
-    rec  = [df[(df.domain == d) & (df.component == c)].recall.iloc[0]    for d, c in groups]
+    rec = [df[(df.domain == d) & (df.component == c)].recall.iloc[0] for d, c in groups]
     b1 = ax.bar(x - w / 2, prec, w, color='#3182BD', label='precision')
     b2 = ax.bar(x + w / 2, rec,  w, color='#E6550D', label='recall')
     for bars, vals in ((b1, prec), (b2, rec)):

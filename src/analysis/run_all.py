@@ -25,12 +25,12 @@ from src.analysis.plots import (
 
 STEPS = [
     ('part 1 - pose-error distribution + components', plot_error_distributions.main),
-    ('part 2 - per-feature Spearman rho',             plot_feature_correlation.main),
-    ('part 3 - ROC curves (4 panels)',                plot_roc_curves.main),
-    ('part 3 - AUC bar chart',                        plot_auc_bars.main),
-    ('part 4 - operating point (frozen threshold)',   plot_operating_point.main),
-    ('part 4 - predicted risk vs true error',         plot_risk_vs_error.main),
-    ('part 5 - importance-weight histogram',          plot_iw_weights.main),
+    ('part 2 - per-feature Spearman rho', plot_feature_correlation.main),
+    ('part 3 - ROC curves (4 panels)', plot_roc_curves.main),
+    ('part 3 - AUC bar chart', plot_auc_bars.main),
+    ('part 4 - operating point (frozen threshold)', plot_operating_point.main),
+    ('part 4 - predicted risk vs true error', plot_risk_vs_error.main),
+    ('part 5 - importance-weight histogram', plot_iw_weights.main),
 ]
 
 

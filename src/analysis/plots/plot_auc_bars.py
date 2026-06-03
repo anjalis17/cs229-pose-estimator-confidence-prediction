@@ -23,10 +23,10 @@ from src.analysis.model_outputs import all_domain_outputs
 from src.pipeline.models import DOMAINS, COMPONENTS, RANDOM_STATE
 
 TABLE_METHODS = ['method', 'iw', 'disagreement', 'oracle']
-BARS          = ['method', 'iw', 'disagreement', 'oracle']
+BARS = ['method', 'iw', 'disagreement', 'oracle']
 
-N_BOOT = 2000   # bootstrap resamples for the AUC confidence interval
-_RNG   = np.random.default_rng(RANDOM_STATE)
+N_BOOT = 2000  # bootstrap resamples for the AUC confidence interval
+_RNG = np.random.default_rng(RANDOM_STATE)
 
 
 def _bootstrap_auc_ci(y, s, n_boot=N_BOOT):
@@ -68,8 +68,8 @@ def plot(df):
 
     fig, ax = plt.subplots(figsize=(10, 4.6))
     for k, name in enumerate(BARS):
-        sub  = [df[(df.domain == d) & (df.component == c) & (df.method == name)].iloc[0]
-                for d, c in groups]
+        sub = [df[(df.domain == d) & (df.component == c) & (df.method == name)].iloc[0]
+               for d, c in groups]
         vals = np.array([r.auc for r in sub])
         # asymmetric error bars from the bootstrap CI (clip tiny negatives from rounding)
         yerr = np.array([np.clip(vals - [r.ci_lo for r in sub], 0, None),

@@ -28,42 +28,42 @@ from sklearn.metrics import (
 )
 
 PROJECT_ROOT = Path(__file__).parents[2]
-RESULTS_DIR  = PROJECT_ROOT / 'results'
+RESULTS_DIR = PROJECT_ROOT / 'results'
 
 DOMAINS = ['lightbox', 'sunlamp']
 
 # axis -> error column, absolute fail threshold, and the disagreement score to use
 AXES = {
     'translation': {'err_col': 'E_T', 'threshold': 0.10, 'feature': 'disagree_t_m'},
-    'rotation':    {'err_col': 'E_R', 'threshold': 3.0,  'feature': 'disagree_R_deg'},
+    'rotation': {'err_col': 'E_R', 'threshold': 3.0, 'feature': 'disagree_R_deg'},
 }
 
 # synthetic val split for freezing the disagreement cutoff; same fraction and seed
 # as model_outputs.synth_val_threshold so baseline and method pick on identical data
-VAL_FRAC     = 0.25
+VAL_FRAC = 0.25
 RANDOM_STATE = 42
 
 
-def load_domain(domain: str):
+def load_domain(domain):
     # returns (cols, errors_df) aligned to a common length; cols maps each
     # model-feature name -> its (N,) column
     feats = np.load(RESULTS_DIR / f'model_features_{domain}.npy')
     names = [str(n) for n in np.load(RESULTS_DIR / 'model_feature_names.npy',
                                      allow_pickle=True)]
-    df    = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
-    n     = min(len(feats), len(df))
+    df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
+    n = min(len(feats), len(df))
     feats, df = feats[:n], df.iloc[:n].reset_index(drop=True)
-    cols  = {nm: feats[:, j] for j, nm in enumerate(names)}
+    cols = {nm: feats[:, j] for j, nm in enumerate(names)}
     return cols, df
 
 
-def freeze_disagree_threshold(axis: str, cols_synth: dict, df_synth: pd.DataFrame):
+def freeze_disagree_threshold(axis, cols_synth, df_synth):
     """F1-optimal disagreement cutoff on a held-out synthetic val split. Returns
     (threshold, synth_val_f1); HIL is never touched."""
-    cfg   = AXES[axis]
-    ys    = (df_synth[cfg['err_col']].values > cfg['threshold']).astype(int)
+    cfg = AXES[axis]
+    ys = (df_synth[cfg['err_col']].values > cfg['threshold']).astype(int)
     score = cols_synth[cfg['feature']]
-    keep  = cols_synth['reject'].astype(int) == 0      # no-op on synthetic; kept for parity
+    keep = cols_synth['reject'].astype(int) == 0  # no-op on synthetic, kept for parity
     score, ys = score[keep], ys[keep]
 
     _, s_val, _, y_val = train_test_split(
@@ -78,15 +78,14 @@ def freeze_disagree_threshold(axis: str, cols_synth: dict, df_synth: pd.DataFram
     return float(thr[best]), float(f1[best])
 
 
-def evaluate_axis(domain: str, axis: str, cols: dict, df: pd.DataFrame,
-                  t_disagree: float, synth_rate: float):
-    cfg    = AXES[axis]
-    y      = (df[cfg['err_col']].values > cfg['threshold']).astype(int)
-    keep   = cols['reject'].astype(int) == 0           # drop degenerate (imputed) rows
+def evaluate_axis(domain, axis, cols, df, t_disagree, synth_rate):
+    cfg = AXES[axis]
+    y = (df[cfg['err_col']].values > cfg['threshold']).astype(int)
+    keep = cols['reject'].astype(int) == 0  # drop degenerate (imputed) rows
     n_drop = int((~keep).sum())
 
-    yk          = y[keep]
-    auc_defined = len(np.unique(yk)) > 1               # AUC needs both classes present
+    yk = y[keep]
+    auc_defined = len(np.unique(yk)) > 1  # AUC needs both classes present
 
     common = {'domain': domain, 'axis': axis,
               'n': int(keep.sum()), 'n_dropped_reject': n_drop,
@@ -94,19 +93,19 @@ def evaluate_axis(domain: str, axis: str, cols: dict, df: pd.DataFrame,
 
     # random: in expectation flagged rate = recall = synth_rate, precision = HIL base rate
     random_row = {**common, 'baseline': 'random',
-                  'auc':          0.5 if auc_defined else np.nan,
-                  'precision':    float(yk.mean()) if len(yk) else np.nan,
-                  'recall':       synth_rate,
+                  'auc': 0.5 if auc_defined else np.nan,
+                  'precision': float(yk.mean()) if len(yk) else np.nan,
+                  'recall': synth_rate,
                   'flagged_rate': synth_rate}
 
     # disagreement: feature value is the score; binary call uses the frozen val cutoff
     score = cols[cfg['feature']][keep]
-    pred  = (score >= t_disagree).astype(int)
+    pred = (score >= t_disagree).astype(int)
     disag_row = {**common, 'baseline': 'disagreement',
-                 'auc':          roc_auc_score(yk, score) if auc_defined else np.nan,
-                 'threshold':    t_disagree,
-                 'precision':    precision_score(yk, pred, zero_division=0),
-                 'recall':       recall_score(yk, pred, zero_division=0),
+                 'auc': roc_auc_score(yk, score) if auc_defined else np.nan,
+                 'threshold': t_disagree,
+                 'precision': precision_score(yk, pred, zero_division=0),
+                 'recall': recall_score(yk, pred, zero_division=0),
                  'flagged_rate': float(pred.mean()) if len(pred) else np.nan}
 
     return [random_row, disag_row]

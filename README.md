@@ -6,7 +6,7 @@
 
 This project builds a test-time confidence predictor for [SPNv2](https://github.com/tpark94/spnv2), a state-of-the-art spacecraft pose estimator. SPNv2 already works hard to close the synthetic-to-real domain gap through multi-task learning and Online Domain Refinement (ODR), but its error is still substantially higher on the real hardware-in-the-loop (HIL) domains than on the synthetic data it was trained on, and that degradation is not uniform across images. SPNv2 itself flags uncertainty quantification as an open problem, which finds use in downstream navigation filters (e.g., UKF).
 
-Our work picks up exactly there. Given a new image at deployment, we predict whether SPNv2's pose estimate has failed using features read off a single forward pass and without labels from the deployment domain. Our calibrated answer allows a downstream navigation filter (e.g. a UKF) to down-weight or reject unreliable pose measurements before they corrupt the state estimate.
+Our work aims to address that gap. Given a new image at deployment, we predict whether SPNv2's pose estimate has failed using features read off a single forward pass and without labels from the deployment domain. Our calibrated answer allows a downstream navigation filter (e.g. a UKF) to down-weight or reject unreliable pose measurements before they corrupt the state estimate.
 
 ## Abstract
 

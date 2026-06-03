@@ -32,13 +32,13 @@ def _draw_panel(ax, data, dom, comp, show_xlabel, show_ylabel):
     ax.plot([0, 1], [0, 1], ls=':', color=METHOD_COLORS['random'], lw=1.2,
             label=f"{METHOD_LABELS['random']} (0.50)")
     for name in [m for m in METHOD_ORDER if m != 'random']:
-        s  = data['probs'][name]
+        s = data['probs'][name]
         ok = np.isfinite(s)
         if ok.sum() == 0 or len(np.unique(y[ok])) < 2:
             continue
         fpr, tpr, _ = roc_curve(y[ok], s[ok])
         auc = roc_auc_score(y[ok], s[ok])
-        lw  = 2.4 if name == 'method' else 1.6
+        lw = 2.4 if name == 'method' else 1.6
         ax.plot(fpr, tpr, color=METHOD_COLORS[name], lw=lw,
                 label=f'{METHOD_LABELS[name]} ({auc:.2f})')
     ax.set_title(f'{dom.capitalize()} - {COMP_NAME[comp].capitalize()}',

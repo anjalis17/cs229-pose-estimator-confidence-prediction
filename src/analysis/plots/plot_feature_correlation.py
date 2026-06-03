@@ -18,9 +18,9 @@ from scipy.stats import spearmanr
 
 from src.analysis._common import plt, RESULTS_DIR, DOMAIN_COLORS, COMP_NAME, save
 
-DOMAINS    = ['synthetic', 'lightbox', 'sunlamp']
+DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 COMPONENTS = ['E_T', 'E_R']
-DATA_DIR   = RESULTS_DIR
+DATA_DIR = RESULTS_DIR
 
 
 def _feature_table():
@@ -28,9 +28,9 @@ def _feature_table():
                                      allow_pickle=True)]
     rows = []
     for d in DOMAINS:
-        X  = np.load(DATA_DIR / f'model_features_{d}.npy')
+        X = np.load(DATA_DIR / f'model_features_{d}.npy')
         df = pd.read_csv(DATA_DIR / f'per_image_errors_{d}.csv')
-        n  = min(len(X), len(df))
+        n = min(len(X), len(df))
         X, df = X[:n], df.iloc[:n]
         for comp in COMPONENTS:
             for j, nm in enumerate(names):

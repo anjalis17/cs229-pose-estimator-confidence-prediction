@@ -18,8 +18,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parents[2]
-RESULTS_DIR  = PROJECT_ROOT / 'results'
-FIG_DIR      = PROJECT_ROOT / 'figures'
+RESULTS_DIR = PROJECT_ROOT / 'results'
+FIG_DIR = PROJECT_ROOT / 'figures'
 
 DROP_FEATURES = ['reject']
 
@@ -34,7 +34,7 @@ def main():
 
     kept.sort(key=lambda t: t[1])
     kept_names = [n for n, _ in kept]
-    kept_std   = np.array([s for _, s in kept])
+    kept_std = np.array([s for _, s in kept])
 
     smin, smax = kept_std.min(), kept_std.max()
     n_orders = np.log10(smax / smin)

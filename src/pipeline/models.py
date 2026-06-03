@@ -34,22 +34,22 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.features.loaders import load_features, KEEP_NAMES, RESULTS_DIR
 
 PROJECT_ROOT = Path(__file__).parents[2]
-FIG_DIR      = PROJECT_ROOT / 'figures'
+FIG_DIR = PROJECT_ROOT / 'figures'
 
 DOMAINS = ['lightbox', 'sunlamp']
 
 # absolute failure thresholds [deg, m] (a fail is a fail, domain-independent)
 COMPONENTS = {'E_R': 3.0, 'E_T': 0.10}
-COMP_UNIT  = {'E_R': 'deg', 'E_T': 'm'}
+COMP_UNIT = {'E_R': 'deg', 'E_T': 'm'}
 
 # heavy-tailed, strictly non-negative features: log1p before standardizing so a
 # few extreme values don't dominate the domain classifier / importance weights
 LOG_FEATURES = ['disagree_t_m', 'disagree_t_norm', 'seg_entropy', 'bbox_area']
 LOG_IDX = [KEEP_NAMES.index(n) for n in LOG_FEATURES]
 
-N_SPLITS        = 5
+N_SPLITS = 5
 WEIGHT_CLIP_PCT = 99
-RANDOM_STATE    = 42
+RANDOM_STATE = 42
 
 DOMAIN_COLORS = {'lightbox': '#DD8452', 'sunlamp': '#55A868'}
 
@@ -64,16 +64,16 @@ def make_pipeline(clf):
     # StandardScaler fits inside the pipeline, so each CV fold standardizes on its
     # own training data
     return Pipeline([
-        ('log',   FunctionTransformer(_log1p_transform)),
+        ('log', FunctionTransformer(_log1p_transform)),
         ('scale', StandardScaler()),
-        ('clf',   clf),
+        ('clf', clf),
     ])
 
 
 def load_domain(domain):
-    X  = load_features(domain)
+    X = load_features(domain)
     df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
-    n  = min(len(X), len(df))
+    n = min(len(X), len(df))
     return X[:n], df.iloc[:n].reset_index(drop=True)
 
 
@@ -95,15 +95,15 @@ def domain_probabilities(X_synth, X_hil):
     # would inflate the probabilities and break the reliability curve. The weights
     # w = p/(1-p) still equal the density ratio up to a constant prior factor.
     pipe = make_pipeline(_new_lr(class_weight=None))
-    cv   = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
+    cv = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
     p_oof = cross_val_predict(pipe, Xd, yd, cv=cv, method='predict_proba')[:, 1]
     return p_oof, yd
 
 
 def importance_weights(p_synth):
     eps = 1e-6
-    p   = np.clip(p_synth, eps, 1 - eps)
-    w   = p / (1 - p)
+    p = np.clip(p_synth, eps, 1 - eps)
+    w = p / (1 - p)
     cap = np.percentile(w, WEIGHT_CLIP_PCT)
     return np.minimum(w, cap), cap
 
@@ -112,32 +112,32 @@ def _metrics(domain, comp, method, y_true, y_prob):
     # threshold-free AUC + 0.5-cut F1/precision/recall (no HIL-label tuning)
     y_pred = (y_prob >= 0.5).astype(int)
     return {
-        'domain':    domain,
+        'domain': domain,
         'component': comp,
-        'method':    method,
-        'n_total':   len(y_true),
-        'n_fail':    int(y_true.sum()),
+        'method': method,
+        'n_total': len(y_true),
+        'n_fail': int(y_true.sum()),
         'fail_rate': y_true.mean(),
-        'auc':       roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else np.nan,
-        'f1':        f1_score(y_true, y_pred, zero_division=0),
+        'auc': roc_auc_score(y_true, y_prob) if len(np.unique(y_true)) > 1 else np.nan,
+        'f1': f1_score(y_true, y_pred, zero_division=0),
         'precision': precision_score(y_true, y_pred, zero_division=0),
-        'recall':    recall_score(y_true, y_pred, zero_division=0),
+        'recall': recall_score(y_true, y_pred, zero_division=0),
     }
 
 
 def evaluate_component(domain, comp, X_synth, df_synth, X_hil, df_hil, w):
     ys = fail_labels(df_synth, comp)
-    yt = fail_labels(df_hil,   comp)
+    yt = fail_labels(df_hil, comp)
     rows = []
 
     # random: flag at the synthetic failure rate (deployable prior, HIL unseen).
     # Constant risk score -> AUC = 0.5.
-    rng        = np.random.default_rng(RANDOM_STATE)
+    rng = np.random.default_rng(RANDOM_STATE)
     synth_rate = ys.mean()
-    p_rand     = np.full(len(yt), synth_rate)
+    p_rand = np.full(len(yt), synth_rate)
     r = _metrics(domain, comp, 'random', yt, p_rand)
     r['auc'] = 0.5
-    r['f1']  = f1_score(yt, (rng.random(len(yt)) < synth_rate).astype(int), zero_division=0)
+    r['f1'] = f1_score(yt, (rng.random(len(yt)) < synth_rate).astype(int), zero_division=0)
     rows.append(r)
 
     # naive supervised: class-weighted LR on synthetic, applied to HIL (no adaptation)
@@ -202,11 +202,11 @@ def main():
 
         # stage 1: domain classifier (shared across components)
         p_oof, yd = domain_probabilities(X_synth, X_hil)
-        auc_dom   = roc_auc_score(yd, p_oof)
-        p_synth   = p_oof[:len(X_synth)]
-        w, cap    = importance_weights(p_synth)
+        auc_dom = roc_auc_score(yd, p_oof)
+        p_synth = p_oof[:len(X_synth)]
+        w, cap = importance_weights(p_synth)
         weights[domain] = w
-        calib[domain]   = calibration_curve(yd, p_oof, n_bins=10, strategy='quantile')
+        calib[domain] = calibration_curve(yd, p_oof, n_bins=10, strategy='quantile')
         print(f'  domain classifier AUC = {auc_dom:.3f}  (higher = bigger gap)')
         print(f'  importance weights: mean={w.mean():.2f}, max={w.max():.2f} '
               f'(clipped at p{WEIGHT_CLIP_PCT}={cap:.2f})')

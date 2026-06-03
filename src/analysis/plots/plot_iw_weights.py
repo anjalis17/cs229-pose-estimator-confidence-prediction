@@ -37,10 +37,10 @@ def main():
     fig, axes = plt.subplots(1, len(DOMAINS), figsize=(5.2 * len(DOMAINS), 3.8),
                              squeeze=False)
     for ax, dom in zip(axes[0], DOMAINS):
-        X_hil, _  = load_domain(dom)
+        X_hil, _ = load_domain(dom)
         p_oof, yd = domain_probabilities(X_synth, X_hil)
-        w, cap    = importance_weights(p_oof[:len(X_synth)])
-        ess       = _ess_fraction(w)
+        w, cap = importance_weights(p_oof[:len(X_synth)])
+        ess = _ess_fraction(w)
         domain_auc = roc_auc_score(yd, p_oof)
         stats.append({'domain': dom, 'domain_classifier_auc': domain_auc,
                       'weight_mean': w.mean(), 'weight_max': w.max(),

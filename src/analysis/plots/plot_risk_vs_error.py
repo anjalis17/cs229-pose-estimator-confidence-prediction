@@ -36,12 +36,12 @@ def main():
     for r, dom in enumerate(DOMAINS):
         X_hil, df_hil = load_domain(dom)
         for c, comp in enumerate(comps):
-            ax       = axes[r, c]
-            t, clf   = gate[comp]
-            p        = clf.predict_proba(X_hil)[:, 1]
-            err      = df_hil[comp].values
-            reject   = p >= t
-            ythr     = COMP_THRESHOLD[comp]
+            ax = axes[r, c]
+            t, clf = gate[comp]
+            p = clf.predict_proba(X_hil)[:, 1]
+            err = df_hil[comp].values
+            reject = p >= t
+            ythr = COMP_THRESHOLD[comp]
 
             stats.append({
                 'domain': dom, 'component': comp, 'gate': t,

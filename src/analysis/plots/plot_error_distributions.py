@@ -29,14 +29,14 @@ def _load():
 def error_stats(errs):
     rows = []
     for d in DOMAINS:
-        df  = errs[d]
+        df = errs[d]
         row = {'domain': d, 'n': len(df)}
         for col in ('E_T', 'E_R', 'speed_score'):
             v = df[col].values
-            row[f'{col}_mean']   = v.mean()
+            row[f'{col}_mean'] = v.mean()
             row[f'{col}_median'] = np.median(v)
-            row[f'{col}_p90']    = np.percentile(v, 90)
-            row[f'{col}_p99']    = np.percentile(v, 99)
+            row[f'{col}_p90'] = np.percentile(v, 90)
+            row[f'{col}_p99'] = np.percentile(v, 99)
         row['fail_rate_E_T'] = (df['E_T'] > COMP_THRESHOLD['E_T']).mean()
         row['fail_rate_E_R'] = (df['E_R'] > COMP_THRESHOLD['E_R']).mean()
         rows.append(row)

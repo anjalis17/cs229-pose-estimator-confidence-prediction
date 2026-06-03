@@ -18,8 +18,8 @@ from sklearn.svm import OneClassSVM
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
-PROJECT_ROOT = Path(__file__).parent.parent
-RESULTS_DIR  = PROJECT_ROOT / 'results'
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+RESULTS_DIR = PROJECT_ROOT / 'results'
 
 DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
@@ -29,11 +29,11 @@ DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 DROP_FEATURES = ['reject']
 
 ALL_FEATURE_NAMES = np.load(RESULTS_DIR / 'model_feature_names.npy', allow_pickle=True).tolist()
-KEEP_IDX   = [i for i, n in enumerate(ALL_FEATURE_NAMES) if n not in DROP_FEATURES]
+KEEP_IDX = [i for i, n in enumerate(ALL_FEATURE_NAMES) if n not in DROP_FEATURES]
 KEEP_NAMES = [ALL_FEATURE_NAMES[i] for i in KEEP_IDX]
 
 
-def load_features(domain: str) -> np.ndarray:
+def load_features(domain):
     X = np.load(RESULTS_DIR / f'model_features_{domain}.npy')
     return X[:, KEEP_IDX]
 
@@ -41,14 +41,14 @@ def load_features(domain: str) -> np.ndarray:
 class MahalanobisDetector:
     """Single Gaussian (mu, Sigma) on synthetic; score = (x-mu)^T Sigma^-1 (x-mu)."""
 
-    def fit(self, X: np.ndarray) -> 'MahalanobisDetector':
+    def fit(self, X):
         self.mu_ = X.mean(axis=0)
         cov = np.cov(X, rowvar=False)
-        cov += 1e-6 * np.eye(cov.shape[0])   # ridge against near-singularity
+        cov += 1e-6 * np.eye(cov.shape[0])  # ridge against near-singularity
         self.cov_inv_ = np.linalg.inv(cov)
         return self
 
-    def score(self, X: np.ndarray) -> np.ndarray:
+    def score(self, X):
         diff = X - self.mu_
         # squared Mahalanobis distance per sample n: diff[n] @ cov_inv @ diff[n]
         return np.einsum('ni,ij,nj->n', diff, self.cov_inv_, diff)
@@ -59,7 +59,7 @@ class GMMDetector:
 
     K_CANDIDATES = [1, 2, 4, 8, 16]
 
-    def fit(self, X: np.ndarray) -> 'GMMDetector':
+    def fit(self, X):
         self.scaler_ = StandardScaler().fit(X)
         X_s = self.scaler_.transform(X)
 
@@ -77,12 +77,12 @@ class GMMDetector:
             if bic < best_bic:
                 best_bic, best_gmm = bic, gmm
 
-        self.gmm_    = best_gmm
+        self.gmm_ = best_gmm
         self.best_k_ = best_gmm.n_components
         print(f"  -> selected K={self.best_k_}  (BIC={best_bic:.1f})")
         return self
 
-    def score(self, X: np.ndarray) -> np.ndarray:
+    def score(self, X):
         X_s = self.scaler_.transform(X)
         return -self.gmm_.score_samples(X_s)
 
@@ -92,11 +92,11 @@ class OCSVMDetector:
     synthetic support. nu = fraction allowed outside; standardize since the RBF
     kernel is distance-based."""
 
-    def __init__(self, nu: float = 0.05, gamma='scale'):
+    def __init__(self, nu=0.05, gamma='scale'):
         self.nu = nu
         self.gamma = gamma
 
-    def fit(self, X: np.ndarray) -> 'OCSVMDetector':
+    def fit(self, X):
         self.scaler_ = StandardScaler().fit(X)
         X_s = self.scaler_.transform(X)
         self.svm_ = OneClassSVM(kernel='rbf', nu=self.nu, gamma=self.gamma)
@@ -105,7 +105,7 @@ class OCSVMDetector:
               f"{self.svm_.support_vectors_.shape[0]} support vectors")
         return self
 
-    def score(self, X: np.ndarray) -> np.ndarray:
+    def score(self, X):
         X_s = self.scaler_.transform(X)
         # decision_function > 0 inside the boundary; negate for "higher = more anomalous"
         return -self.svm_.decision_function(X_s)
@@ -116,11 +116,11 @@ class IsolationForestDetector:
     in few splits (short path) are anomalous. Captures feature interactions a
     single Gaussian misses, complementary to Mahalanobis."""
 
-    def __init__(self, n_estimators: int = 200, contamination='auto'):
+    def __init__(self, n_estimators=200, contamination='auto'):
         self.n_estimators = n_estimators
         self.contamination = contamination
 
-    def fit(self, X: np.ndarray) -> 'IsolationForestDetector':
+    def fit(self, X):
         self.scaler_ = StandardScaler().fit(X)
         X_s = self.scaler_.transform(X)
         self.iforest_ = IsolationForest(n_estimators=self.n_estimators,
@@ -131,7 +131,7 @@ class IsolationForestDetector:
               f"contamination={self.contamination}")
         return self
 
-    def score(self, X: np.ndarray) -> np.ndarray:
+    def score(self, X):
         X_s = self.scaler_.transform(X)
         # score_samples is higher for inliers (longer paths); negate to match convention
         return -self.iforest_.score_samples(X_s)
@@ -145,9 +145,9 @@ def main():
     np.save(RESULTS_DIR / 'model_feature_names_kept.npy', np.array(KEEP_NAMES, dtype=object))
 
     detectors = {
-        'mahal':   MahalanobisDetector(),
-        'gmm':     GMMDetector(),
-        'ocsvm':   OCSVMDetector(),
+        'mahal': MahalanobisDetector(),
+        'gmm': GMMDetector(),
+        'ocsvm': OCSVMDetector(),
         'iforest': IsolationForestDetector(),
     }
 
@@ -157,7 +157,7 @@ def main():
 
         rows = []
         for domain in DOMAINS:
-            X      = load_features(domain)
+            X = load_features(domain)
             scores = detector.score(X)
 
             out_path = RESULTS_DIR / f'anomaly_scores_{name}_{domain}.npy'
@@ -165,13 +165,13 @@ def main():
 
             rows.append({
                 'domain': domain,
-                'n':      len(scores),
-                'mean':   scores.mean(),
-                'std':    scores.std(),
-                'p25':    np.percentile(scores, 25),
+                'n': len(scores),
+                'mean': scores.mean(),
+                'std': scores.std(),
+                'p25': np.percentile(scores, 25),
                 'median': np.median(scores),
-                'p75':    np.percentile(scores, 75),
-                'p95':    np.percentile(scores, 95),
+                'p75': np.percentile(scores, 75),
+                'p95': np.percentile(scores, 95),
             })
             print(f"  Saved {len(scores)} scores -> {out_path.name}")
 
