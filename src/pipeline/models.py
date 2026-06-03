@@ -172,12 +172,14 @@ def evaluate_component(domain, comp, X_synth, df_synth, X_hil, df_hil, w):
     yt = fail_labels(df_hil,   comp)
     rows = []
 
-    # Baseline 1 — random: predict at the empirical HIL failure rate (AUC = 0.5).
-    rng    = np.random.default_rng(RANDOM_STATE)
-    p_rand = np.full(len(yt), yt.mean())
+    # Baseline 1 — random: flag at the SYNTHETIC failure rate (the deployable
+    # prior; HIL labels unseen). Constant risk score → AUC = 0.5.
+    rng        = np.random.default_rng(RANDOM_STATE)
+    synth_rate = ys.mean()
+    p_rand     = np.full(len(yt), synth_rate)
     r = _metrics(domain, comp, 'random', yt, p_rand)
     r['auc'] = 0.5
-    r['f1']  = f1_score(yt, (rng.random(len(yt)) < yt.mean()).astype(int), zero_division=0)
+    r['f1']  = f1_score(yt, (rng.random(len(yt)) < synth_rate).astype(int), zero_division=0)
     rows.append(r)
 
     # Baseline 2 — naive supervised: class-weighted LR on synthetic, applied to HIL
