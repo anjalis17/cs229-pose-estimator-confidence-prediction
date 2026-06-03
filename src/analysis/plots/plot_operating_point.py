@@ -1,20 +1,13 @@
-# src/analysis/plot_operating_point.py
 """
-Beat 4 — it's a usable gate, not just a ranker.
+The threshold is chosen once on a synthetic validation split (F1-optimal), frozen,
+and applied unchanged to each HIL domain. We report the precision and recall that
+gate achieves per domain x axis: the numbers you'd get deploying it without ever
+touching target labels. Uses model_outputs.synth_val_threshold.
 
-The threshold is chosen ONCE on a synthetic validation split (F1-optimal), frozen,
-and applied unchanged to each HIL domain. We then report the precision and recall
-that gate achieves per domain × axis — the numbers you'd actually get deploying it
-without ever touching target labels.
-
-Uses src/analysis/model_outputs.synth_val_threshold (the honest train/val fit).
-
-Saves:
-    figures/operating_point.{png,pdf}
-    results/operating_point.csv
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
-# allow running directly: put repo root on sys.path so `import src` resolves
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -84,7 +77,7 @@ def main():
     print('frozen thresholds (synthetic val, F1-optimal):',
           {c: round(t, 3) for c, t in thresholds.items()})
     print(df.to_string(index=False, float_format=lambda v: f'{v:.3f}'))
-    print(f'Saved → results/{out.name}')
+    print(f'Saved -> results/{out.name}')
     plot(df)
 
 

@@ -1,31 +1,25 @@
-# src/iw_diagnostics.py
 """
-Stress-test the importance-weighting pipeline to decide whether IW *genuinely*
-doesn't help, or whether our one configuration was just suppressing it.
+Stress-test the importance-weighting pipeline: does IW genuinely not help, or was
+our one configuration just suppressing it?
 
-Checks, per (domain, component):
-  - supervised baseline AUC (no reweighting)
-  - IW AUC across clip percentiles {90, 95, 99, 99.9, none}
-  - IW AUC with self-normalized weights
-  - IW AUC with the failure model UNweighted by class (isolate sample-weight effect)
-  - effective sample size of the weights (variance cost of reweighting)
-  - prediction agreement (corr) between supervised and IW probabilities
-  - ORACLE ceiling: a classifier trained on HIL itself (cross-val) — tells us if
-    there is any headroom at all, and whether covariate-shift (IW's assumption)
-    can explain the gap.  Uses HIL labels ONLY as a diagnostic upper bound.
+Per (domain, component) reports the supervised baseline AUC, IW AUC across clip
+percentiles, self-normalized and un-class-weighted IW variants, the effective
+sample size of the weights, supervised-vs-IW prediction agreement, and an oracle
+ceiling (classifier trained on HIL itself via cross-val). The oracle uses HIL
+labels ONLY as a diagnostic upper bound.
+
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
+import sys
 import numpy as np
 import pandas as pd
+from pathlib import Path
 from sklearn.model_selection import cross_val_predict, StratifiedKFold
 from sklearn.metrics import roc_auc_score
 
-# allow running this file directly (python src/pipeline/iw_diagnostics.py) by
-# putting the repo root on sys.path so `import src` resolves
-import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from src.pipeline.models import (
     load_domain, fail_labels, make_pipeline, _new_lr,
     domain_probabilities, COMPONENTS, DOMAINS, RANDOM_STATE,
@@ -33,7 +27,7 @@ from src.pipeline.models import (
 
 
 def ess_fraction(w):
-    """Kish effective sample size as a fraction of n: (Σw)² / (n·Σw²)."""
+    # Kish effective sample size as a fraction of n: (sum w)^2 / (n * sum w^2)
     w = np.asarray(w, float)
     return (w.sum() ** 2) / (len(w) * (w ** 2).sum())
 
@@ -62,12 +56,11 @@ def main():
             ys = fail_labels(df_synth, comp)
             yt = fail_labels(df_hil, comp)
 
-            # baseline (no weights)
             sup = make_pipeline(_new_lr()).fit(X_synth, ys)
             p_sup = sup.predict_proba(X_hil)[:, 1]
             auc_sup = roc_auc_score(yt, p_sup)
 
-            # oracle: train on HIL itself, cross-validated (upper bound / ceiling)
+            # oracle: train on HIL itself, cross-validated (ceiling / upper bound)
             cv = StratifiedKFold(5, shuffle=True, random_state=RANDOM_STATE)
             p_oracle = cross_val_predict(make_pipeline(_new_lr()), X_hil, yt,
                                          cv=cv, method='predict_proba')[:, 1]
@@ -76,7 +69,6 @@ def main():
             rec = {'domain': domain, 'component': comp,
                    'supervised': auc_sup, 'oracle_HIL': auc_oracle}
 
-            # clip sweep
             for pct in [90, 95, 99, 99.9, None]:
                 w = clipped(w_raw, pct)
                 auc, p_iw = auc_iw(X_synth, ys, X_hil, yt, w)

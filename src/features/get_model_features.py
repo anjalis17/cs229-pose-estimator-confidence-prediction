@@ -1,35 +1,27 @@
-# src/get_model_features.py
 """
-Compute model-internal features from SPNv2's forward pass for anomaly detection.
+Compute model-internal features from SPNv2's forward pass for failure prediction.
 
-Replaces the hand-engineered image stats (get_image_features.py), which measured
-image-domain identity and sign-flipped across the synthetic->HIL gap. These are
-read out of the pose model itself, so they live in pose / confidence space.
+These are read out of the pose model itself (pose / confidence space) rather than
+the image domain, so they don't sign-flip across the synthetic->HIL gap the way
+hand-engineered image stats did. Reads the predictions_pose.mat dumped by
+inference (one per split) and saves a feature matrix + names per domain.
 
-Reads the predictions_pose.mat dumped by inference (one per split).
-
-Saves:
-    results/model_features_{domain}.npy   -- (N, F) feature matrix
-    results/model_feature_names.npy       -- (F,)   feature names
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
+import sys
 import numpy as np
 from pathlib import Path
 from scipy.io import loadmat
 
-# allow running this file directly (python src/features/get_model_features.py) by
-# putting the repo root on sys.path so `import src` resolves
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from src.utils.errors import quaternion_to_rotation_matrix, rotation_error_deg
 
-# ── Config ────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).parents[2]
 RESULTS_DIR  = PROJECT_ROOT / 'results'
 RESULTS_DIR.mkdir(exist_ok=True)
 
-# inference output dir - one sub-directory per split, each with a predictions_pose.mat
 PRED_ROOT = PROJECT_ROOT / 'spnv2/tools/outputs/efficientdet_d3/full_config'
 
 DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
@@ -44,7 +36,7 @@ FEATURE_NAMES = [
     'hm_entropy_mean',      # mean per-keypoint heatmap entropy
     'hm_peak_mean',         # mean peak activation height
     'hm_peak_min',          # worst-localized keypoint's peak height
-    'hm_nconf',             # # keypoints above detection threshold
+    'hm_nconf',             # num keypoints above detection threshold
     'effi_cls',             # max EfficientPose detection confidence
     # free covariates
     'reject',               # heatmap PnP rejection flag
@@ -53,14 +45,8 @@ FEATURE_NAMES = [
     'bbox_aspect',
 ]
 
-# ── Feature Computation ───────────────────────────────────────────────────────
 
 def head_disagreement(heat_q, heat_t, effi_R, effi_t):
-    """
-    Disagreement between the two pose heads, per image.
-    heat_q is NaN where the heatmap PnP was rejected -> those rows stay NaN.
-    Returns (dR_deg, dt_m, dt_norm), each (N,).
-    """
     N = heat_q.shape[0]
     dR      = np.full(N, np.nan)
     dt      = np.full(N, np.nan)
@@ -69,7 +55,7 @@ def head_disagreement(heat_q, heat_t, effi_R, effi_t):
     for i in range(N):
         q = heat_q[i]
         if not np.all(np.isfinite(q)) or np.linalg.norm(q) < 1e-6:
-            continue
+            continue   # heatmap PnP rejected -> leave this row NaN
         R_heat = quaternion_to_rotation_matrix(q)
         dR[i] = rotation_error_deg(R_heat, effi_R[i])
         dt[i] = np.linalg.norm(heat_t[i] - effi_t[i])
@@ -80,10 +66,6 @@ def head_disagreement(heat_q, heat_t, effi_R, effi_t):
 
 
 def compute_features(m) -> np.ndarray:
-    """
-    Build the (N, F) feature matrix from one loaded predictions_pose.mat.
-    Columns follow FEATURE_NAMES.
-    """
     heat_q = np.asarray(m['heat_q'], dtype=float)   # (N, 4)
     heat_t = np.asarray(m['heat_t'], dtype=float)   # (N, 3)
     effi_R = np.asarray(m['effi_R'], dtype=float)   # (N, 3, 3)
@@ -116,10 +98,8 @@ def compute_features(m) -> np.ndarray:
 
 
 def impute_nans(features, domain):
-    """
-    Median-fill non-finite entries (the disagreement columns on rejected rows).
-    reject=1 is kept on those rows, so the failure signal is preserved.
-    """
+    # median-fill the disagreement columns on rejected rows; reject=1 stays set so
+    # the failure signal is preserved
     for j, name in enumerate(FEATURE_NAMES):
         col = features[:, j]
         bad = ~np.isfinite(col)
@@ -129,8 +109,6 @@ def impute_nans(features, domain):
             print(f"  {domain}: imputed {bad.sum()} non-finite in {name}")
     return features
 
-
-# ── Per-Domain Extraction ─────────────────────────────────────────────────────
 
 def extract_domain(domain: str):
     mat_path = PRED_ROOT / domain / 'predictions_pose.mat'
@@ -147,10 +125,8 @@ def extract_domain(domain: str):
 
 def save_domain(features, domain: str):
     np.save(RESULTS_DIR / f'model_features_{domain}.npy', features)
-    print(f"Saved {features.shape} → results/model_features_{domain}.npy")
+    print(f"Saved {features.shape} -> results/model_features_{domain}.npy")
 
-
-# ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
     np.save(RESULTS_DIR / 'model_feature_names.npy', np.array(FEATURE_NAMES))

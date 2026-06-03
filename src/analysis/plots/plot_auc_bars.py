@@ -1,19 +1,13 @@
-# src/analysis/plot_auc_bars.py
 """
-Beat 3 — AUC summary bar chart.
+AUC summary bar chart: method vs importance-weighted vs disagreement vs oracle,
+grouped by domain x axis, with a random-chance line at 0.50 and bootstrap 95% CIs.
+Shows the method works, IW barely moves it, and the headroom up to the
+HIL-trained oracle. Uses the per-image scores from src/analysis/model_outputs.py.
 
-Method vs importance-weighted vs oracle AUC, grouped by domain × axis, with the
-random chance line at 0.50. Shows (a) the method works, (b) IW barely moves it,
-(c) how much headroom remains up to the HIL-trained oracle.
-
-Uses the per-image scores from src/analysis/model_outputs.py.
-
-Saves:
-    figures/auc_bars.{png,pdf}
-    results/analysis_auc.csv
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
-# allow running directly: put repo root on sys.path so `import src` resolves
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -28,17 +22,16 @@ from src.analysis._common import (
 from src.analysis.model_outputs import all_domain_outputs
 from src.pipeline.models import DOMAINS, COMPONENTS, RANDOM_STATE
 
-TABLE_METHODS = ['method', 'iw', 'disagreement', 'oracle']   # saved to CSV
-BARS          = ['method', 'iw', 'disagreement', 'oracle']   # subset drawn as bars
+TABLE_METHODS = ['method', 'iw', 'disagreement', 'oracle']
+BARS          = ['method', 'iw', 'disagreement', 'oracle']
 
 N_BOOT = 2000   # bootstrap resamples for the AUC confidence interval
 _RNG   = np.random.default_rng(RANDOM_STATE)
 
 
 def _bootstrap_auc_ci(y, s, n_boot=N_BOOT):
-    """Point AUC + 95% CI by resampling the evaluation set with replacement.
-    The CI captures finite-sample noise on HIL, so near-equal bars (and the
-    apparent 'beating' of the oracle ceiling) can be read as statistical ties."""
+    # point AUC + 95% CI by resampling the eval set with replacement; the CI lets
+    # near-equal bars (and apparent 'beating' of the oracle) read as ties
     ok = np.isfinite(s)
     y, s = y[ok], s[ok]
     if len(y) == 0 or len(np.unique(y)) < 2:
@@ -108,7 +101,7 @@ def main():
     out = RESULTS_DIR / 'analysis_auc.csv'
     df.to_csv(out, index=False)
     print(df.to_string(index=False, float_format=lambda v: f'{v:.3f}'))
-    print(f'Saved → results/{out.name}')
+    print(f'Saved -> results/{out.name}')
     plot(df)
 
 

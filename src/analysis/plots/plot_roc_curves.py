@@ -1,22 +1,13 @@
-# src/analysis/plot_roc_curves.py
 """
-Beat 3 — our method catches failures, the dumb baselines don't.
+ROC curves in four panels (lightbox / sunlamp x translation / rotation). Each
+panel overlays our method (supervised LR), iw, the disagreement baseline, the
+HIL-trained oracle upper bound, and the chance diagonal. Uses the per-image scores
+from src/analysis/model_outputs.py (the deployed fits).
 
-ROC curves in four panels (lightbox / sunlamp × translation / rotation). Each
-panel overlays:
-    method        supervised LR (ours)
-    iw            importance-weighted LR (ours)
-    disagreement  disagreement-threshold baseline
-    oracle        HIL-trained upper bound
-    random        chance diagonal
-
-Uses the per-image scores from src/analysis/model_outputs.py (the deployed fits).
-
-Saves:
-    figures/roc_curves.{png,pdf}
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
-# allow running directly: put repo root on sys.path so `import src` resolves
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -30,17 +21,13 @@ from src.analysis._common import (
 from src.analysis.model_outputs import all_domain_outputs
 from src.pipeline.models import DOMAINS, COMPONENTS
 
-# Domain palette matched to the new-pipeline notebooks → panel-title colors only
-# (local override of the shared _common palette). Curve colors keep the original
-# _common METHOD_COLORS.
+# panel-title colors only; curve colors use the shared METHOD_COLORS
 DOMAIN_COLORS = {'synthetic': '#2166ac', 'lightbox': '#4f0942', 'sunlamp': '#d6604d'}
-
 
 COMPS = ['E_T', 'E_R']
 
 
 def _draw_panel(ax, data, dom, comp, show_xlabel, show_ylabel):
-    """Draw one ROC panel (all methods overlaid) for a (domain, component)."""
     y = data['y_true']
     ax.plot([0, 1], [0, 1], ls=':', color=METHOD_COLORS['random'], lw=1.2,
             label=f"{METHOD_LABELS['random']} (0.50)")
@@ -54,7 +41,7 @@ def _draw_panel(ax, data, dom, comp, show_xlabel, show_ylabel):
         lw  = 2.4 if name == 'method' else 1.6
         ax.plot(fpr, tpr, color=METHOD_COLORS[name], lw=lw,
                 label=f'{METHOD_LABELS[name]} ({auc:.2f})')
-    ax.set_title(f'{dom.capitalize()} — {COMP_NAME[comp].capitalize()}',
+    ax.set_title(f'{dom.capitalize()} - {COMP_NAME[comp].capitalize()}',
                  fontsize=11, color=DOMAIN_COLORS[dom])
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_aspect('equal')
     ax.grid(alpha=0.25)
@@ -66,26 +53,26 @@ def _draw_panel(ax, data, dom, comp, show_xlabel, show_ylabel):
 
 
 def plot(outs):
-    """2×2 grid: domains down rows, components across columns."""
+    # 2x2 grid: domains down rows, components across columns
     fig, axes = plt.subplots(len(DOMAINS), len(COMPS), figsize=(7.5, 7))
     for r, dom in enumerate(DOMAINS):
         for c, comp in enumerate(COMPS):
             _draw_panel(axes[r, c], outs[dom][comp], dom, comp,
                         show_xlabel=(r == len(DOMAINS) - 1), show_ylabel=(c == 0))
-    fig.suptitle('Failure-Prediction ROC by Domain × Axis  (AUC in legend)',
+    fig.suptitle('Failure-Prediction ROC by Domain x Axis  (AUC in legend)',
                  fontweight='bold')
     fig.tight_layout()
     save(fig, 'roc_curves')
 
 
 def plot_row(outs):
-    """Single row: all four domain × component panels side by side."""
+    # single row: all four domain x component panels side by side
     groups = [(d, c) for d in DOMAINS for c in COMPS]
     fig, axes = plt.subplots(1, len(groups), figsize=(14, 4))
     for i, (dom, comp) in enumerate(groups):
         _draw_panel(axes[i], outs[dom][comp], dom, comp,
                     show_xlabel=True, show_ylabel=(i == 0))
-    fig.suptitle('Failure-Prediction ROC by Domain × Axis  (AUC in legend)',
+    fig.suptitle('Failure-Prediction ROC by Domain x Axis  (AUC in legend)',
                  fontweight='bold')
     fig.tight_layout()
     save(fig, 'roc_curves_row')

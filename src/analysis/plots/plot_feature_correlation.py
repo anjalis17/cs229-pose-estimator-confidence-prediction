@@ -1,19 +1,13 @@
-# src/analysis/plot_feature_correlation.py
 """
-Beat 2 — our features see the gap.
+Per-feature Spearman correlation between each SPNv2 model-internal feature and the
+pose error, computed separately for translation (E_T) and rotation (E_R) and per
+domain. Features whose |rho| is large and consistent in sign across domains carry
+failure signal through the domain gap. Reads saved features + errors (no model).
 
-Per-feature Spearman ρ between each SPNv2 model-internal feature and the pose
-error, computed separately for translation (E_T) and rotation (E_R) and for each
-domain. Features whose |ρ| is large and consistent in sign across domains are the
-ones that carry failure signal through the domain gap.
-
-Reads the saved feature matrices + per-image errors — no model needed.
-
-Saves:
-    figures/feature_spearman.{png,pdf}
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
-# allow running directly: put repo root on sys.path so `import src` resolves
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -26,13 +20,10 @@ from src.analysis._common import plt, RESULTS_DIR, DOMAIN_COLORS, COMP_NAME, sav
 
 DOMAINS    = ['synthetic', 'lightbox', 'sunlamp']
 COMPONENTS = ['E_T', 'E_R']
-
-
-DATA_DIR = RESULTS_DIR   # feature matrices + per-image errors live here
+DATA_DIR   = RESULTS_DIR
 
 
 def _feature_table():
-    """Long table: domain × feature × component → Spearman ρ."""
     names = [str(n) for n in np.load(DATA_DIR / 'model_feature_names.npy',
                                      allow_pickle=True)]
     rows = []
@@ -51,7 +42,7 @@ def _feature_table():
 
 
 def plot(df, names):
-    # order features by mean |ρ| over the HIL domains (translation) — most useful at top
+    # order features by mean |rho| over the HIL domains (translation); most useful at top
     hil = df[(df.domain != 'synthetic')]
     order = (hil.assign(absrho=hil.rho.abs())
                 .groupby('feature').absrho.mean().sort_values().index.tolist())
@@ -69,13 +60,13 @@ def plot(df, names):
         ax.axvline(0, color='k', lw=0.8)
         ax.set_yticks(y)
         ax.set_yticklabels(order, fontsize=7.5, fontweight='bold')
-        ax.set_xlabel('Spearman ρ', fontweight='bold')
+        ax.set_xlabel(r'Spearman $\rho$', fontweight='bold')
         ax.set_title(f'{COMP_NAME[comp].capitalize()} error  ($E_{comp[-1]}$)',
                      fontsize=10, fontweight='bold')
         ax.set_xlim(-1, 1)
         ax.grid(alpha=0.2, axis='x')
     axes[0].legend(frameon=False, fontsize=8, loc='lower left')
-    fig.suptitle('Per-feature Spearman ρ vs pose error', fontweight='bold')
+    fig.suptitle(r'Per-feature Spearman $\rho$ vs pose error', fontweight='bold')
     fig.tight_layout()
     save(fig, 'feature_spearman')
 
@@ -86,7 +77,7 @@ def main():
               .reindex(names))
     wide.to_csv(RESULTS_DIR / 'feature_spearman.csv')
     print(wide.to_string(float_format=lambda v: f'{v:.3f}'))
-    print('Saved → results/feature_spearman.csv')
+    print('Saved -> results/feature_spearman.csv')
     plot(df, names)
 
 

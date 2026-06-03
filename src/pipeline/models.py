@@ -1,37 +1,22 @@
-# src/pipeline/models.py
 """
-Our method: supervised + importance-weighted failure prediction (covariate-shift
-adaptation).
+Supervised + importance-weighted failure prediction under covariate shift.
 
 Both classifiers are class-weighted logistic regressions trained ONLY on
 synthetic failure labels; the importance-weighted version additionally reweights
-synthetic samples toward the target HIL domain. They are evaluated against the
-dumb baselines in src/pipeline/baselines.py.
+synthetic samples toward the target HIL domain via density-ratio weights from a
+domain classifier. HIL failure labels are used only for the final evaluation,
+never in any fit. Evaluated against the baselines in baselines.py.
 
-The failure classifier only ever trains on SYNTHETIC failure labels. HIL failure
-labels are used exclusively for the final evaluation -- never in any fit. To make
-the synthetic-trained model transfer to a HIL domain, we reweight synthetic
-samples by how much they "look like" that HIL domain (density-ratio importance
-weights), estimated by a domain classifier.
+Per HIL domain (lightbox, sunlamp):
+  1. fit a domain classifier (synthetic=0, HIL=1), cross-fit P(HIL|x)
+  2. importance weight w = p/(1-p), clipped at the 99th percentile
+  3. per component (E_R, E_T): weighted LR on synthetic, evaluate on HIL
 
-Per test domain ∈ {lightbox, sunlamp}:
-  1. Domain dataset: synthetic → 0, this HIL domain → 1.
-  2. Class-weighted logistic regression predicting synthetic-vs-HIL.
-  3. Cross-fit (out-of-fold) probabilities p = P(HIL | x) so every synthetic
-     image gets an *unbiased* p from a model that never trained on it.
-     → reliability/calibration curve (p vs. empirical domain fraction)
-     → importance weight  w = p / (1 - p),  clipped at the 99th percentile.
-  4. Per component ∈ {E_R, E_T}:
-       - synthetic failure labels from an absolute threshold,
-       - weighted logistic regression on synthetic (sample_weight = w),
-       - evaluate on HIL, alongside random + naive-supervised baselines.
-
-Outputs:
-  results/importance_weighting_results.csv
-  figures/domain_calibration.png
-  figures/importance_weights.png
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -45,11 +30,7 @@ from sklearn.metrics import (
     roc_auc_score, f1_score, precision_score, recall_score
 )
 
-# allow running this file directly (python src/pipeline/models.py) by putting
-# the repo root on sys.path so `import src` resolves
-import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
 from src.features.loaders import load_features, KEEP_NAMES, RESULTS_DIR
 
 PROJECT_ROOT = Path(__file__).parents[2]
@@ -57,12 +38,12 @@ FIG_DIR      = PROJECT_ROOT / 'figures'
 
 DOMAINS = ['lightbox', 'sunlamp']
 
-# Absolute failure thresholds (a fail is a fail, domain-independent).
-COMPONENTS = {'E_R': 3.0, 'E_T': 0.10}   # [deg, m]
+# absolute failure thresholds [deg, m] (a fail is a fail, domain-independent)
+COMPONENTS = {'E_R': 3.0, 'E_T': 0.10}
 COMP_UNIT  = {'E_R': 'deg', 'E_T': 'm'}
 
-# Heavy-tailed, strictly non-negative features → log1p before standardizing so a
-# few extreme values don't dominate the domain classifier / importance weights.
+# heavy-tailed, strictly non-negative features: log1p before standardizing so a
+# few extreme values don't dominate the domain classifier / importance weights
 LOG_FEATURES = ['disagree_t_m', 'disagree_t_norm', 'seg_entropy', 'bbox_area']
 LOG_IDX = [KEEP_NAMES.index(n) for n in LOG_FEATURES]
 
@@ -73,19 +54,15 @@ RANDOM_STATE    = 42
 DOMAIN_COLORS = {'lightbox': '#DD8452', 'sunlamp': '#55A868'}
 
 
-# ----------------------------------------------------------------------------
-# Preprocessing + data loading
-# ----------------------------------------------------------------------------
 def _log1p_transform(X):
-    """log1p the heavy-tailed columns; leave the rest untouched."""
     X = X.astype(float).copy()
     X[:, LOG_IDX] = np.log1p(np.clip(X[:, LOG_IDX], 0, None))
     return X
 
 
 def make_pipeline(clf):
-    """log1p → standardize → classifier. StandardScaler fits inside the pipeline,
-    so under cross-validation each fold standardizes on its own training data."""
+    # StandardScaler fits inside the pipeline, so each CV fold standardizes on its
+    # own training data
     return Pipeline([
         ('log',   FunctionTransformer(_log1p_transform)),
         ('scale', StandardScaler()),
@@ -94,15 +71,13 @@ def make_pipeline(clf):
 
 
 def load_domain(domain):
-    """Return (X_12feat, errors_df) aligned to the same length."""
-    X  = load_features(domain)                                   # (n1, 12)
+    X  = load_features(domain)
     df = pd.read_csv(RESULTS_DIR / f'per_image_errors_{domain}.csv')
     n  = min(len(X), len(df))
     return X[:n], df.iloc[:n].reset_index(drop=True)
 
 
 def fail_labels(df, comp):
-    """Binary failure labels from the absolute per-component threshold."""
     return (df[comp].values > COMPONENTS[comp]).astype(int)
 
 
@@ -111,23 +86,14 @@ def _new_lr(class_weight='balanced'):
                               random_state=RANDOM_STATE)
 
 
-# ----------------------------------------------------------------------------
-# Stage 1: domain classifier → out-of-fold p → importance weights
-# ----------------------------------------------------------------------------
 def domain_probabilities(X_synth, X_hil):
-    """Cross-fit P(HIL | x) for the stacked synthetic+HIL set.
-
-    Returns (p_oof, y_domain): out-of-fold HIL-probabilities and the true domain
-    labels (0 = synthetic, 1 = HIL), for every row of np.vstack([X_synth, X_hil]).
-    """
+    """Cross-fit P(HIL|x) over stacked synthetic+HIL. Returns (p_oof, y_domain)."""
     Xd = np.vstack([X_synth, X_hil])
     yd = np.r_[np.zeros(len(X_synth)), np.ones(len(X_hil))].astype(int)
 
-    # Unweighted LR for the domain classifier: we want CALIBRATED P(HIL | x) so
-    # the reliability curve is meaningful. class_weight='balanced' would inflate
-    # predicted probabilities and break calibration. The resulting weights
-    # w = p/(1-p) still equal the density ratio up to a constant prior factor,
-    # which scales all weights uniformly and does not affect the failure model.
+    # unweighted LR here so P(HIL|x) stays calibrated; class_weight='balanced'
+    # would inflate the probabilities and break the reliability curve. The weights
+    # w = p/(1-p) still equal the density ratio up to a constant prior factor.
     pipe = make_pipeline(_new_lr(class_weight=None))
     cv   = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
     p_oof = cross_val_predict(pipe, Xd, yd, cv=cv, method='predict_proba')[:, 1]
@@ -135,7 +101,6 @@ def domain_probabilities(X_synth, X_hil):
 
 
 def importance_weights(p_synth):
-    """w = p/(1-p), clipped at the WEIGHT_CLIP_PCT percentile for stability."""
     eps = 1e-6
     p   = np.clip(p_synth, eps, 1 - eps)
     w   = p / (1 - p)
@@ -143,11 +108,8 @@ def importance_weights(p_synth):
     return np.minimum(w, cap), cap
 
 
-# ----------------------------------------------------------------------------
-# Metrics
-# ----------------------------------------------------------------------------
 def _metrics(domain, comp, method, y_true, y_prob):
-    """Threshold-free AUC + 0.5-cut F1/precision/recall (no HIL-label tuning)."""
+    # threshold-free AUC + 0.5-cut F1/precision/recall (no HIL-label tuning)
     y_pred = (y_prob >= 0.5).astype(int)
     return {
         'domain':    domain,
@@ -163,17 +125,13 @@ def _metrics(domain, comp, method, y_true, y_prob):
     }
 
 
-# ----------------------------------------------------------------------------
-# Stage 2: per-component failure classifiers (+ baselines)
-# ----------------------------------------------------------------------------
 def evaluate_component(domain, comp, X_synth, df_synth, X_hil, df_hil, w):
-    """Random + naive-supervised + importance-weighted, evaluated on HIL."""
     ys = fail_labels(df_synth, comp)
     yt = fail_labels(df_hil,   comp)
     rows = []
 
-    # Baseline 1 — random: flag at the SYNTHETIC failure rate (the deployable
-    # prior; HIL labels unseen). Constant risk score → AUC = 0.5.
+    # random: flag at the synthetic failure rate (deployable prior, HIL unseen).
+    # Constant risk score -> AUC = 0.5.
     rng        = np.random.default_rng(RANDOM_STATE)
     synth_rate = ys.mean()
     p_rand     = np.full(len(yt), synth_rate)
@@ -182,24 +140,18 @@ def evaluate_component(domain, comp, X_synth, df_synth, X_hil, df_hil, w):
     r['f1']  = f1_score(yt, (rng.random(len(yt)) < synth_rate).astype(int), zero_division=0)
     rows.append(r)
 
-    # Baseline 2 — naive supervised: class-weighted LR on synthetic, applied to HIL
-    #               (no domain adaptation).
+    # naive supervised: class-weighted LR on synthetic, applied to HIL (no adaptation)
     sup = make_pipeline(_new_lr()).fit(X_synth, ys)
     rows.append(_metrics(domain, comp, 'supervised', yt, sup.predict_proba(X_hil)[:, 1]))
 
-    # Ours — importance-weighted: identical to baseline 2 but with sample_weight = w,
-    #         so the only difference is the covariate-shift reweighting.
+    # ours: same fit but with sample_weight = w (the only difference is reweighting)
     iw = make_pipeline(_new_lr()).fit(X_synth, ys, clf__sample_weight=w)
     rows.append(_metrics(domain, comp, 'importance_weighted', yt, iw.predict_proba(X_hil)[:, 1]))
 
     return rows
 
 
-# ----------------------------------------------------------------------------
-# Plots
-# ----------------------------------------------------------------------------
 def plot_calibration(calib):
-    """Reliability diagram of the domain classifier, one line per HIL domain."""
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.plot([0, 1], [0, 1], '--', color='0.6', label='perfectly calibrated')
     for domain, (frac_pos, mean_pred) in calib.items():
@@ -214,11 +166,10 @@ def plot_calibration(calib):
     FIG_DIR.mkdir(exist_ok=True)
     fig.savefig(FIG_DIR / 'domain_calibration.png', dpi=200, bbox_inches='tight')
     fig.savefig(FIG_DIR / 'domain_calibration.pdf', bbox_inches='tight')
-    print('Saved → figures/domain_calibration.(png|pdf)')
+    print('Saved -> figures/domain_calibration.(png|pdf)')
 
 
 def plot_weights(weights):
-    """Distribution of synthetic importance weights, one panel per HIL domain."""
     fig, axes = plt.subplots(1, len(weights), figsize=(4.4 * len(weights), 3.4),
                              squeeze=False)
     for ax, (domain, w) in zip(axes[0], weights.items()):
@@ -232,12 +183,9 @@ def plot_weights(weights):
     fig.suptitle('Synthetic importance weights toward each HIL domain', fontweight='bold')
     fig.tight_layout()
     fig.savefig(FIG_DIR / 'importance_weights.png', dpi=200, bbox_inches='tight')
-    print('Saved → figures/importance_weights.png')
+    print('Saved -> figures/importance_weights.png')
 
 
-# ----------------------------------------------------------------------------
-# Main
-# ----------------------------------------------------------------------------
 def main():
     X_synth, df_synth = load_domain('synthetic')
     print(f'Synthetic: {len(X_synth)} images, {X_synth.shape[1]} features')
@@ -252,7 +200,7 @@ def main():
         print(f'\n{"="*64}\nDomain: {domain}\n{"="*64}')
         X_hil, df_hil = load_domain(domain)
 
-        # Stage 1 — domain classifier (shared across components)
+        # stage 1: domain classifier (shared across components)
         p_oof, yd = domain_probabilities(X_synth, X_hil)
         auc_dom   = roc_auc_score(yd, p_oof)
         p_synth   = p_oof[:len(X_synth)]
@@ -263,7 +211,7 @@ def main():
         print(f'  importance weights: mean={w.mean():.2f}, max={w.max():.2f} '
               f'(clipped at p{WEIGHT_CLIP_PCT}={cap:.2f})')
 
-        # Stage 2 — per component
+        # stage 2: per component
         for comp in COMPONENTS:
             all_rows += evaluate_component(domain, comp, X_synth, df_synth,
                                            X_hil, df_hil, w)
@@ -276,7 +224,7 @@ def main():
     show = df[['domain', 'component', 'method', 'auc', 'f1', 'precision',
                'recall', 'fail_rate']].copy()
     print(show.to_string(index=False, float_format=lambda v: f'{v:.3f}'))
-    print(f'\nSaved → results/importance_weighting_results.csv')
+    print(f'\nSaved -> results/importance_weighting_results.csv')
 
     plot_calibration(calib)
     plot_weights(weights)

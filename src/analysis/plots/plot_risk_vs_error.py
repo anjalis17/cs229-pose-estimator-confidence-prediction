@@ -1,20 +1,14 @@
-# src/analysis/plot_risk_vs_error.py
 """
-Beat 4 — predicted risk tracks real physical error.
+Scatter per domain x axis: x = the method's predicted failure probability,
+y = the true pose error, colored by the frozen-threshold gate decision. If
+predicted risk is meaningful, error rises with predicted probability and rejected
+points concentrate above the physical failure line. Same supervised fit + frozen
+synthetic-val threshold as the operating-point plot.
 
-Scatter per domain × axis: x = the method's predicted failure probability,
-y = the true pose error, each point colored by the frozen-threshold gate decision
-(accept = predicted pass, reject = predicted fail). If predicted risk is
-meaningful, error rises with predicted probability and the rejected points
-concentrate above the physical failure line.
-
-Same supervised fit + frozen synthetic-val threshold as the operating-point plot.
-
-Saves:
-    figures/risk_vs_error.{png,pdf}
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
-# allow running directly: put repo root on sys.path so `import src` resolves
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -65,7 +59,7 @@ def main():
             ax.axhline(ythr, color='k',  ls=':',  lw=1.2)         # physical fail line
             ax.set_yscale('log')
             ax.set_xlim(0, 1)
-            ax.set_title(f'{dom} — {COMP_NAME[comp]}  (gate={t:.2f})', fontsize=10)
+            ax.set_title(f'{dom} - {COMP_NAME[comp]}  (gate={t:.2f})', fontsize=10)
             if r == len(DOMAINS) - 1:
                 ax.set_xlabel('predicted failure probability')
             ax.set_ylabel(f'true {COMP_NAME[comp]} error [{COMP_UNIT[comp]}] (log)')
@@ -83,7 +77,7 @@ def main():
     df_stats = pd.DataFrame(stats)
     df_stats.to_csv(RESULTS_DIR / 'risk_error_correlation.csv', index=False)
     print(df_stats.to_string(index=False, float_format=lambda v: f'{v:.3f}'))
-    print('Saved → results/risk_error_correlation.csv')
+    print('Saved -> results/risk_error_correlation.csv')
     save(fig, 'risk_vs_error')
 
 

@@ -1,19 +1,12 @@
-# src/analysis/plot_error_distributions.py
 """
-Beat 1 — there IS a domain gap.
+Pose-error distribution per domain, and the same error split into its translation
+(E_T) and rotation (E_R) components with the absolute failure thresholds marked.
+Both read only the per-image error CSVs (no model needed).
 
-Plot 1: pose-error (SPEED score) distribution per domain.
-Plot 2: the same error split into its translation (E_T) and rotation (E_R)
-        components, with the absolute failure thresholds marked.
-
-Both read only the per-image error CSVs — no model needed.
-
-Saves:
-    figures/pose_error_distribution.{png,pdf}
-    figures/pose_error_components.{png,pdf}
+@ Author: Anjali Sreenivas and Lundeen Cahilly
+@ Date: 2026-06-03
 """
 
-# allow running directly: put repo root on sys.path so `import src` resolves
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
@@ -30,12 +23,10 @@ DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
 
 def _load():
-    # full per-image error splits (same source as the notebook)
     return {d: pd.read_csv(RESULTS_DIR / f'per_image_errors_{d}.csv') for d in DOMAINS}
 
 
 def error_stats(errs):
-    """Per-domain error summary + absolute-threshold failure rates → CSV."""
     rows = []
     for d in DOMAINS:
         df  = errs[d]
@@ -52,12 +43,11 @@ def error_stats(errs):
     out = pd.DataFrame(rows)
     out.to_csv(RESULTS_DIR / 'error_distribution_stats.csv', index=False)
     print(out.to_string(index=False, float_format=lambda v: f'{v:.4g}'))
-    print('Saved → results/error_distribution_stats.csv')
+    print('Saved -> results/error_distribution_stats.csv')
 
 
 def _log_hist(ax, values, color, label, n_bins=60):
-    """Density histogram on a log x-axis (pose errors are strictly positive,
-    heavy-tailed)."""
+    # density histogram on a log x-axis (pose errors are positive, heavy-tailed)
     v = np.asarray(values, float)
     v = v[v > 0]
     bins = np.logspace(np.log10(v.min()), np.log10(np.percentile(v, 99.5)), n_bins)
@@ -92,15 +82,12 @@ def plot_components(errs):
                       f'{d}  (median={med:.3g})')
             ax.axvline(med, color=DOMAIN_COLORS[d], ls='--', lw=1.4)
         thr = COMP_THRESHOLD[comp]
-        # dotted (not dashed) so it reads clearly differently from the median lines
         ax.axvline(thr, color='k', ls=':', lw=1.8,
                    label=f'fail threshold ({thr:g} {COMP_UNIT[comp]})')
         ax.set_xlabel(f'{COMP_NAME[comp].capitalize()} Error  $E_{{{comp[-1]}}}$ '
                       f'[{COMP_UNIT[comp]}]  (Log Scale)')
         ax.set_ylabel('Density')
         ax.set_title(f'{COMP_NAME[comp].capitalize()} Error  ($E_{comp[-1]}$)')
-        # explicit key for the dashed per-domain median lines, placed before the
-        # dotted fail-threshold entry
         median_key = Line2D([0], [0], color='0.4', ls='--', lw=1.4,
                             label='median (per domain)')
         handles, _ = ax.get_legend_handles_labels()
