@@ -28,7 +28,7 @@ DOMAINS    = ['synthetic', 'lightbox', 'sunlamp']
 COMPONENTS = ['E_T', 'E_R']
 
 
-DATA_DIR = RESULTS_DIR / 'NEW_DATA'   # feature matrices + per-image errors live here
+DATA_DIR = RESULTS_DIR   # feature matrices + per-image errors live here
 
 
 def _feature_table():

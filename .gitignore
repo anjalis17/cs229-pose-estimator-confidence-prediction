@@ -22,6 +22,4 @@ __pycache__/
 .venv/
 
 # OS
-.DS_Storeresults/NEW_DATA/
-results/NEW_DATA/
 .DS_Store

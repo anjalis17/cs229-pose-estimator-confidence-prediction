@@ -22,7 +22,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
 PROJECT_ROOT = Path(__file__).parent.parent
-RESULTS_DIR  = PROJECT_ROOT / 'results' / 'NEW_DATA'
+RESULTS_DIR  = PROJECT_ROOT / 'results'
 
 DOMAINS = ['synthetic', 'lightbox', 'sunlamp']
 
