@@ -1,5 +1,4 @@
-cat > .gitignore << EOF
-# Dataset 
+# Dataset
 data/
 
 # Model weights
