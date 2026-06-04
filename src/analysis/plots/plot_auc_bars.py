@@ -22,6 +22,10 @@ from src.analysis._common import (
 from src.analysis.model_outputs import all_domain_outputs
 from src.pipeline.models import DOMAINS, COMPONENTS, RANDOM_STATE
 
+# notebook palette → domain tick-label colors (bar colors keep METHOD_COLORS)
+DOMAIN_COLORS = {'synthetic': '#2166ac', 'lightbox': '#4f0942', 'sunlamp': '#d6604d'}
+METHOD_LABELS = {**METHOD_LABELS, 'disagreement': 'disagreement feature'}
+
 TABLE_METHODS = ['method', 'iw', 'disagreement', 'oracle']
 BARS = ['method', 'iw', 'disagreement', 'oracle']
 
@@ -85,10 +89,11 @@ def plot(df):
     ax.axhline(0.5, color=METHOD_COLORS['random'], ls='--', lw=1.2, label='random (0.50)')
     ax.set_xticks(x)
     ax.set_xticklabels([f'{d}\n{COMP_NAME[c]}' for d, c in groups])
+    for tick, (d, _) in zip(ax.get_xticklabels(), groups):
+        tick.set_color(DOMAIN_COLORS[d])      # color domain labels to the notebook palette
     ax.set_ylabel('AUC')
     ax.set_ylim(0.45, 1.0)
-    ax.set_title('Failure-prediction AUC: method vs importance-weighted vs oracle',
-                 fontweight='bold')
+    ax.set_title('Failure-Prediction AUC Across Methods', fontweight='bold')
     ax.legend(frameon=False, fontsize=9, ncol=5, loc='upper center',
               bbox_to_anchor=(0.5, -0.12))
     ax.grid(alpha=0.25, axis='y')
