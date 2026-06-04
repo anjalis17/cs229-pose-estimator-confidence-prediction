@@ -82,9 +82,10 @@ def plot(df):
                       color=METHOD_COLORS[name], label=METHOD_LABELS[name],
                       yerr=yerr, capsize=2.5,
                       error_kw=dict(lw=0.9, ecolor='#333333'))
-        for b, v in zip(bars, vals):
+        # place each value label above the upper CI cap so it never overlaps the error bar
+        for b, v, r in zip(bars, vals, sub):
             if np.isfinite(v):
-                ax.text(b.get_x() + b.get_width() / 2, v + 0.012, f'{v:.2f}',
+                ax.text(b.get_x() + b.get_width() / 2, r.ci_hi + 0.012, f'{v:.2f}',
                         ha='center', va='bottom', fontsize=7.5)
     ax.axhline(0.5, color=METHOD_COLORS['random'], ls='--', lw=1.2, label='random (0.50)')
     ax.set_xticks(x)
@@ -92,7 +93,7 @@ def plot(df):
     for tick, (d, _) in zip(ax.get_xticklabels(), groups):
         tick.set_color(DOMAIN_COLORS[d])      # color domain labels to the notebook palette
     ax.set_ylabel('AUC')
-    ax.set_ylim(0.45, 1.0)
+    ax.set_ylim(0.45, 1.05)
     ax.set_title('Failure-Prediction AUC Across Methods', fontweight='bold')
     ax.legend(frameon=False, fontsize=9, ncol=5, loc='upper center',
               bbox_to_anchor=(0.5, -0.12))
