@@ -24,8 +24,12 @@ DATA_DIR = RESULTS_DIR
 
 
 def _feature_table():
-    names = [str(n) for n in np.load(DATA_DIR / 'model_feature_names.npy',
-                                     allow_pickle=True)]
+    all_names = [str(n) for n in np.load(DATA_DIR / 'model_feature_names.npy',
+                                         allow_pickle=True)]
+    keep_idx = {nm: j for j, nm in enumerate(all_names)}  # name -> column in X
+    # Omit the 'reject' feature: it has std 0 on the synthetic set (no heatmap-PnP
+    # rejections there), so its Spearman rho is undefined and the bar is meaningless.
+    names = [nm for nm in all_names if nm != 'reject']
     rows = []
     for d in DOMAINS:
         X = np.load(DATA_DIR / f'model_features_{d}.npy')
@@ -33,8 +37,8 @@ def _feature_table():
         n = min(len(X), len(df))
         X, df = X[:n], df.iloc[:n]
         for comp in COMPONENTS:
-            for j, nm in enumerate(names):
-                col = X[:, j]
+            for nm in names:
+                col = X[:, keep_idx[nm]]
                 rho = np.nan if np.nanstd(col) == 0 else spearmanr(col, df[comp].values,
                                                                    nan_policy='omit').statistic
                 rows.append({'domain': d, 'feature': nm, 'component': comp, 'rho': rho})
